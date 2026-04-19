@@ -1,0 +1,975 @@
+"""Gradio web frontend — application entry point.
+
+Run:
+
+    python -m app.demo_web
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# ---- Project-local cache redirection ---------------------------------------
+# Everything the app downloads at runtime (SBERT, Qwen2.5 GGUF, SDXS, NLTK
+# corpora) is pointed at directories INSIDE the project tree so the whole
+# thing zips up self-contained. If these env vars are already set externally
+# (e.g. by a CI runner), we respect that — setdefault only fills in blanks.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_MODELS_DIR = _PROJECT_ROOT / "models"
+_NLTK_DIR = _PROJECT_ROOT / "nltk_data"
+_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+_NLTK_DIR.mkdir(parents=True, exist_ok=True)
+
+# Hugging Face caches — force everything under ./models/hub/. We explicitly
+# OVERWRITE the env vars (not setdefault) because a lingering outer HF_HOME
+# from an older sibling project (e.g. a renamed recipe_recommender/) would
+# otherwise make HF look for cached files in the wrong absolute path and
+# report a "Cache miss" even when the files are physically in this project
+# tree. Hardcoding project-local paths keeps the zip self-contained.
+os.environ["HF_HOME"] = str(_MODELS_DIR)
+os.environ["HF_HUB_CACHE"] = str(_MODELS_DIR / "hub")
+os.environ["TRANSFORMERS_CACHE"] = str(_MODELS_DIR / "hub")
+# NLTK searches NLTK_DATA for corpora before falling back to ~/nltk_data.
+os.environ["NLTK_DATA"] = str(_NLTK_DIR)
+
+# Allow both torch's and llama-cpp-python's OMP runtimes to coexist on Windows.
+# Without this, whichever lib imports later fails with "WinError 127" loading
+# shm.dll (or similar), because they each bundle their own OpenMP DLL.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+# (Former llama-cpp DLL workaround removed — we now load the LLM through the
+# transformers stack, which doesn't depend on native ggml/llama DLLs.)
+
+# Import torch first (if available) so its OMP runtime wins the load race
+# before llama-cpp-python brings its own in. No-op if torch isn't installed.
+try:
+    import torch  # noqa: F401
+except Exception:
+    pass
+
+import sys
+
+# Make `src` importable when invoked as `python -m app.demo_web` from repo root.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import gradio as gr  # noqa: E402
+
+from app.components import (  # noqa: E402
+    render_low_confidence_prompt,
+    render_normalization_chips,
+    render_result_cards,
+    render_single_recipe_card,
+)
+from app.visualizer import build_cluster_figure  # noqa: E402
+from src.constants import CUISINES, DIET_TAGS, MEAL_TYPES  # noqa: E402
+from src.creative import generate_recipe  # noqa: E402
+from src.gru_backend import generate_gru_recipe  # noqa: E402
+from src.normalizer import flatten_resolved  # noqa: E402
+from src.recommender import Filters, RecipeRecommender  # noqa: E402
+from src.visualize_dish import generate_dish_image  # noqa: E402
+
+
+# --------------------------------------------------------------------
+# Engine bootstrap — build or load from cache at startup.
+# --------------------------------------------------------------------
+print("Bootstrapping RecipeRecommender...")
+_RECIPE_LIMIT = int(os.environ.get("RR_RECIPE_LIMIT", "0")) or None
+_ENGINE = RecipeRecommender.build_or_load(
+    recipe_limit=_RECIPE_LIMIT,
+    use_semantic_normalizer=os.environ.get("RR_NO_SBERT", "0") != "1",
+)
+print(f"Engine ready: {len(_ENGINE.recipes)} recipes, {len(_ENGINE.vocabulary)} vocab tokens")
+
+# Pre-download + pre-load the creative LLM at startup so the first "✨ Creative
+# recipe" click is fast. Set RR_NO_LLM_PRELOAD=1 to skip and keep startup fast
+# (LLM will then load lazily on first button click, as before).
+if os.environ.get("RR_NO_LLM_PRELOAD", "0") != "1":
+    from src.creative import _load_llm  # noqa: E402
+    print("Preloading local creative LLM...")
+    _load_llm()
+    print("Creative LLM preload finished.")
+
+# Same treatment for the GRU seq2seq title model. Small (~30 MB checkpoint),
+# so this is fast even on the first run.
+if (os.environ.get("RR_NO_GRU_PRELOAD", "0") != "1"
+        and os.environ.get("RR_NO_GRU", "0") != "1"):
+    from src.gru_backend import _load_bundle as _load_gru  # noqa: E402
+    print("Preloading GRU seq2seq model...")
+    _load_gru()
+    print("GRU preload finished.")
+
+# Same treatment for the text-to-image pipeline. First run still incurs the
+# ~1.5 GB (SDXS) or ~4 GB (SD 1.5) download; after that startup is quick.
+# Set RR_NO_IMAGE_PRELOAD=1 to skip, or RR_NO_IMAGE=1 to disable T2I entirely.
+if (os.environ.get("RR_NO_IMAGE_PRELOAD", "0") != "1"
+        and os.environ.get("RR_NO_IMAGE", "0") != "1"):
+    from src.visualize_dish import _load_pipeline as _load_t2i  # noqa: E402
+    print("Preloading local text-to-image pipeline...")
+    _load_t2i()
+    print("Text-to-image preload finished.")
+
+
+# --------------------------------------------------------------------
+# Handlers
+# --------------------------------------------------------------------
+def _split_ingredients(text: str) -> list[str]:
+    if not text:
+        return []
+    # Accept comma, newline, and Chinese comma as separators.
+    parts = []
+    for raw in text.replace("，", ",").replace("\n", ",").split(","):
+        p = raw.strip()
+        if p:
+            parts.append(p)
+    return parts
+
+
+# High-contrast status pill (works in both Gradio light and dark themes).
+# Bold text on a saturated background — doesn't rely on the theme's default
+# foreground color being readable.
+_SPINNER_HTML = """\
+<div style="display:inline-flex;align-items:center;gap:12px;padding:12px 18px;
+    background:#1d3557;border:1px solid #0f203a;border-radius:10px;
+    font-size:15px;color:#ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.12);">
+  <span style="width:20px;height:20px;border-radius:50%;
+       border:3px solid rgba(255,255,255,0.35);border-top-color:#ffffff;
+       animation:rr-spin 0.9s linear infinite;display:inline-block;"></span>
+  <span style="font-weight:700;color:#ffffff;letter-spacing:0.2px;">{label}</span>
+</div>
+<style>@keyframes rr-spin{{to{{transform:rotate(360deg);}}}}</style>
+"""
+
+
+# Image-sized placeholder with a big centered spinner so users see where the
+# picture will show up and that work is in progress.
+_IMAGE_PLACEHOLDER_HTML = """\
+<div style="width:100%;max-width:512px;aspect-ratio:1/1;border-radius:12px;
+    background:linear-gradient(135deg,#1d3557 0%,#2b4876 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:18px;color:#ffffff;box-shadow:0 4px 16px rgba(15,23,42,0.25);">
+  <span style="width:56px;height:56px;border-radius:50%;
+       border:6px solid rgba(255,255,255,0.25);border-top-color:#ffffff;
+       animation:rr-spin 1s linear infinite;display:inline-block;"></span>
+  <div style="font-size:15px;font-weight:700;color:#ffffff;
+       text-align:center;padding:0 24px;line-height:1.4;
+       text-shadow:0 1px 2px rgba(0,0,0,0.25);">
+    {label}
+  </div>
+</div>
+<style>@keyframes rr-spin{{to{{transform:rotate(360deg);}}}}</style>
+"""
+
+
+def _progress_markdown(label: str, detail: str = "") -> str:
+    """Spinner + short label + optional detail paragraph for Gradio Markdown."""
+    html = _SPINNER_HTML.format(label=label)
+    if detail:
+        return html + f"\n\n{detail}"
+    return html
+
+
+def _image_placeholder(label: str) -> str:
+    """Large image-shaped placeholder that sits in the slot where the final
+    generated picture will appear — tells the user exactly where to look."""
+    return _IMAGE_PLACEHOLDER_HTML.format(label=label)
+
+
+def _cluster_dropdown_choices() -> list[tuple[str, int]]:
+    """Label→cluster_id pairs for the cluster browser dropdown.
+
+    Labels combine the semantic topic (if known) with the top distinctive
+    ingredients: 'cluster 3 — stir-fries · chicken, soy sauce, ginger'.
+    """
+    cids = sorted(set(int(c) for c in _ENGINE.cluster_labels.tolist()))
+    return [
+        (f"cluster {cid}  —  {_ENGINE.cluster_label_guess(cid)}", cid)
+        for cid in cids
+    ]
+
+
+def _representative_recipe_ids(cluster_id: int, n: int = 12) -> list[int]:
+    """Return the `n` recipes closest to the centroid of the given cluster
+    (in the 2-D projection space)."""
+    import numpy as np
+    mask = _ENGINE.cluster_labels == int(cluster_id)
+    if not mask.any():
+        return []
+    pts = _ENGINE.projection_2d[mask]
+    center = pts.mean(axis=0)
+    idx = np.where(mask)[0]
+    dists = np.linalg.norm(pts - center, axis=1)
+    order = idx[np.argsort(dists)]
+    return [int(i) for i in order[:n]]
+
+
+def on_cluster_browse(cluster_id):
+    """Dropdown handler — render a grid of representative recipes for the
+    chosen cluster. This replaces the plot-click interaction, which newer
+    Gradio versions don't support."""
+    if cluster_id is None or cluster_id == "":
+        return "<em>Pick a cluster above to see its recipes.</em>"
+    try:
+        cid = int(cluster_id)
+    except (TypeError, ValueError):
+        return "<em>Bad cluster id.</em>"
+    ids = _representative_recipe_ids(cid, n=12)
+    if not ids:
+        return "<em>That cluster has no recipes.</em>"
+    topic = _ENGINE.cluster_topics.get(cid)
+    cards = [
+        render_single_recipe_card(_ENGINE.recipes[i], cluster_id=cid, topic=topic)
+        for i in ids
+    ]
+    return (
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));'
+        'gap:16px;align-items:stretch;">'
+        + "".join(cards)
+        + "</div>"
+    )
+
+
+def _build_fig_and_mapping(*, highlight_indices=None, user_position=None):
+    """Build the cluster figure AND a {(trace, point): recipe_id} lookup,
+    so click events on the Plot component can resolve back to a recipe."""
+    fig = build_cluster_figure(
+        _ENGINE,
+        highlight_indices=highlight_indices,
+        user_position=user_position,
+    )
+    mapping: dict[tuple[int, int], int] = {}
+    for t_idx, trace in enumerate(fig.data):
+        cd = getattr(trace, "customdata", None)
+        if cd is None:
+            continue
+        for p_idx, val in enumerate(cd):
+            try:
+                mapping[(t_idx, p_idx)] = int(val)
+            except (TypeError, ValueError):
+                continue
+    return fig, mapping
+
+
+def _dish_image_markdown(image_result) -> str:
+    return (
+        "### Dish preview\n\n"
+        f'<img src="{image_result.image_data_uri}" '
+        'style="width:100%;max-width:512px;border-radius:10px;'
+        'box-shadow:0 2px 8px rgba(0,0,0,0.15);" alt="dish preview" />\n\n'
+        f"<sub>Generated by `{image_result.model}`.</sub>"
+    )
+
+
+def _image_md_for(recipe_text: str, resolved: list[str]) -> str:
+    """Run the T2I generator on an already-produced recipe and return the
+    markdown to drop into that generator's image slot. Keeps the two
+    generator branches (LLM / GRU) symmetric so `on_create` stays readable."""
+    image_result = generate_dish_image(recipe_text, resolved)
+    if not image_result.ok:
+        return (
+            "### Dish preview\n\n"
+            f"_⚠️ Image generation skipped: {image_result.error}_"
+        )
+    return _dish_image_markdown(image_result)
+
+
+def on_create(
+    ingredient_text: str,
+    cuisine: list[str],
+    diet: list[str],
+    meal_type: list[str],
+    excluded_text: str,
+    max_calories: float,
+    max_time: float,
+    top_k: int,
+    want_image: bool,
+    generators: list[str],
+):
+    """Unified "Create" handler.
+
+    Yields tuples that match the UI's `outputs` list:
+        ( chips_html, confirm_html,
+          llm_section_visibility, llm_header_md, llm_recipe_accordion,
+          llm_recipe_md, llm_image_md,
+          gru_section_visibility, gru_header_md, gru_recipe_md, gru_image_md,
+          retrieval_cards_html, cluster_plot, plot_mapping_state,
+          clicked_recipe_html )
+    """
+    empty_fig_update = gr.update()
+    empty_state: dict = {}
+
+    def payload(
+        chips: str = "",
+        confirm: str = "",
+        *,
+        llm_visible: bool = True,
+        llm_header: str = "",
+        llm_recipe_open: bool = False,
+        llm_body: str = "",
+        llm_image: str = "",
+        gru_visible: bool = True,
+        gru_header: str = "",
+        gru_body: str = "",
+        gru_image: str = "",
+        retrieval: str = "",
+        fig=empty_fig_update,
+        mapping: dict = empty_state,
+        clicked: str = gr.update(),
+    ):
+        return (
+            chips, confirm,
+            gr.update(visible=llm_visible),
+            llm_header,
+            gr.update(
+                open=llm_recipe_open,
+                label="Wanna see how AI would cook it?",
+            ),
+            llm_body,
+            llm_image,
+            gr.update(visible=gru_visible), gru_header, gru_body, gru_image,
+            retrieval, fig, mapping, clicked,
+        )
+
+    want_llm = "llm" in (generators or [])
+    want_gru = "gru" in (generators or [])
+
+    if not want_llm and not want_gru:
+        warning = "⚠️ Select at least one generator (LLM or GRU) to run."
+        yield payload(
+            chips="<em>Pick LLM or GRU (or both) above before hitting Create.</em>",
+            llm_recipe_open=True,
+            llm_body=warning, gru_body=warning,
+        )
+        return
+
+    raw = _split_ingredients(ingredient_text)
+    if not raw:
+        yield payload(
+            chips="<em>Enter at least one ingredient above.</em>",
+            llm_visible=want_llm,
+            gru_visible=want_gru,
+            llm_recipe_open=want_llm,
+            llm_body="_Type at least one ingredient above and hit the button._",
+            gru_body="_Type at least one ingredient above and hit the button._",
+        )
+        return
+
+    # ---- Stage 1: normalize + show chips (instant) ----------------------
+    tokens = _ENGINE.normalize(raw)
+    resolved = flatten_resolved(tokens)
+    chips_val = render_normalization_chips(tokens)
+    confirm_val = render_low_confidence_prompt(tokens)
+    if not resolved:
+        yield payload(
+            chips=chips_val, confirm=confirm_val,
+            llm_visible=want_llm, gru_visible=want_gru,
+            llm_recipe_open=want_llm,
+            llm_body="⚠️ Couldn't resolve any of your ingredients.",
+            gru_body="⚠️ Couldn't resolve any of your ingredients.",
+        )
+        return
+
+    preview = ", ".join(resolved[:10]) + (" …" if len(resolved) > 10 else "")
+
+    # Initial spinner: show a "waiting on retrieval" state in whichever
+    # sections are active.
+    init_body = _progress_markdown(
+        "Waiting on retrieval before thinking up a creative dish…",
+        f"**Canonical ingredients:** _{preview}_",
+    )
+    yield payload(
+        chips=chips_val, confirm=confirm_val,
+        llm_visible=want_llm, gru_visible=want_gru,
+        llm_recipe_open=want_llm,
+        llm_body=init_body if want_llm else "",
+        gru_body=init_body if want_gru else "",
+        retrieval=_progress_markdown("Finding similar real recipes in the dataset…"),
+    )
+
+    # ---- Stage 2: retrieval + cluster plot update (fast) ----------------
+    filters = Filters(
+        cuisine=cuisine or [],
+        diet=diet or [],
+        meal_type=meal_type or [],
+        excluded_ingredients=_split_ingredients(excluded_text),
+        max_calories=max_calories if max_calories and max_calories > 0 else None,
+        max_time_minutes=max_time if max_time and max_time > 0 else None,
+    )
+    ranked = _ENGINE.recommend(tokens, top_k=int(top_k), filters=filters)
+    retrieval_html = render_result_cards(ranked)
+    highlight = [r.recipe.id for r in ranked]
+    user_pos = _ENGINE.project_user_position(tokens)
+    fig, plot_mapping = _build_fig_and_mapping(
+        highlight_indices=highlight, user_position=user_pos
+    )
+
+    # Auto-populate the "Selected recipe" panel with the top-ranked real
+    # recipe so the user always sees something there right after Create — no
+    # need to first click a point on the scatter.
+    if ranked:
+        top = ranked[0].recipe
+        top_cid = int(_ENGINE.cluster_labels[top.id])
+        top_topic = _ENGINE.cluster_topics.get(top_cid)
+        top_card_html = render_single_recipe_card(top, cluster_id=top_cid, topic=top_topic)
+    else:
+        top_card_html = "<em>No recipes matched your filters.</em>"
+
+    llm_body = gru_body = ""
+    llm_header = gru_header = ""
+    llm_image = gru_image = ""
+    llm_ok = False
+
+    # ---- Stage 3: LLM branch ---------------------------------------------
+    if want_llm:
+        yield payload(
+            chips=chips_val, confirm=confirm_val,
+            llm_visible=want_llm, gru_visible=want_gru,
+            llm_recipe_open=True,
+            llm_body=_progress_markdown(
+                "Generating with Qwen2.5-0.5B on CPU (transformers) — ~30 to 90 s…",
+                f"**Canonical ingredients:** _{preview}_",
+            ),
+            gru_body=(_progress_markdown("Queued — starts after LLM…")
+                     if want_gru else ""),
+            retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
+        )
+
+        chosen_cuisine = cuisine[0] if cuisine else None
+        llm_result = generate_recipe(
+            ingredients=resolved,
+            cuisine=chosen_cuisine,
+            diet=diet or None,
+            excluded=_split_ingredients(excluded_text) or None,
+            meal_type=meal_type or None,
+            max_calories=(max_calories if max_calories and max_calories > 0 else None),
+            max_time_minutes=(max_time if max_time and max_time > 0 else None),
+        )
+        if not llm_result.ok:
+            llm_body = llm_result.text
+            llm_header = ""
+        else:
+            llm_ok = True
+            llm_header = (
+                f"_Generated locally by `{llm_result.model}` via transformers "
+                "— creative, not from the dataset._"
+            )
+            llm_body = llm_result.text
+
+        if want_image and llm_result.ok:
+            yield payload(
+                chips=chips_val, confirm=confirm_val,
+                llm_visible=want_llm, gru_visible=want_gru,
+                llm_header=llm_header,
+                llm_recipe_open=not llm_ok,
+                llm_body=llm_body,
+                llm_image="### Dish preview\n\n" + _image_placeholder(
+                    "Rendering LLM dish image — ~5–15 s on CPU with SDXS…"
+                ),
+                gru_body=(_progress_markdown("Queued — starts after LLM image…")
+                         if want_gru else ""),
+                retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
+            )
+            llm_image = _image_md_for(llm_result.text, resolved)
+
+        yield payload(
+            chips=chips_val, confirm=confirm_val,
+            llm_visible=want_llm, gru_visible=want_gru,
+            llm_header=llm_header,
+            llm_recipe_open=not llm_ok,
+            llm_body=llm_body,
+            llm_image=llm_image,
+            gru_body=(_progress_markdown("Starting GRU…")
+                     if want_gru else ""),
+            retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
+        )
+
+    # ---- Stage 4: GRU branch ---------------------------------------------
+    if want_gru:
+        yield payload(
+            chips=chips_val, confirm=confirm_val,
+            llm_visible=want_llm, gru_visible=want_gru,
+            llm_header=llm_header,
+            llm_recipe_open=not llm_ok,
+            llm_body=llm_body,
+            llm_image=llm_image,
+            gru_body=_progress_markdown(
+                "Running GRU seq2seq + RAG draft — ~2 to 5 s…",
+                f"**Canonical ingredients:** _{preview}_",
+            ),
+            retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
+        )
+
+        gru_result = generate_gru_recipe(resolved, engine=_ENGINE)
+        if not gru_result.ok:
+            gru_body = gru_result.text
+            gru_header = ""
+        else:
+            gru_header = (
+                "_Generated by the hand-trained GRU seq2seq + retrieval-"
+                "augmented draft composer — title predicted by the model, "
+                "ingredients/steps grounded in the top-5 retrieval matches._"
+            )
+            gru_body = gru_result.text
+
+        if want_image and gru_result.ok:
+            yield payload(
+                chips=chips_val, confirm=confirm_val,
+                llm_visible=want_llm, gru_visible=want_gru,
+                llm_header=llm_header,
+                llm_recipe_open=not llm_ok,
+                llm_body=llm_body,
+                llm_image=llm_image,
+                gru_header=gru_header, gru_body=gru_body,
+                gru_image="### Dish preview\n\n" + _image_placeholder(
+                    "Rendering GRU dish image — ~5–15 s on CPU with SDXS…"
+                ),
+                retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
+            )
+            gru_image = _image_md_for(gru_result.text, resolved)
+
+    # ---- Final ----------------------------------------------------------
+    yield payload(
+        chips=chips_val, confirm=confirm_val,
+        llm_visible=want_llm, gru_visible=want_gru,
+        llm_header=llm_header,
+        llm_recipe_open=not llm_ok,
+        llm_body=llm_body,
+        llm_image=llm_image,
+        gru_header=gru_header, gru_body=gru_body, gru_image=gru_image,
+        retrieval=retrieval_html, fig=fig, mapping=plot_mapping,
+        clicked=top_card_html,
+    )
+
+
+def on_plot_click_relay(payload_json: str):
+    """Called when the JS bridge writes a Plotly click payload into the
+    hidden textbox. Parses {trace, point, customdata} and renders the
+    recipe card if customdata is a valid recipe id."""
+    import json as _json
+    if not payload_json or not payload_json.strip():
+        return "<em>Click a point on the map above.</em>"
+    try:
+        data = _json.loads(payload_json)
+    except Exception as e:
+        return f"<em>Bad click payload: {e}</em>"
+    cd = data.get("customdata")
+    # Plotly can wrap customdata in an array. Unwrap.
+    if isinstance(cd, list) and cd:
+        cd = cd[0]
+    if cd is None:
+        return (
+            f"<em>That point isn't a recipe — probably the "
+            f"matching-region outline or the user marker "
+            f"(trace={data.get('trace')}, point={data.get('point')}).</em>"
+        )
+    try:
+        recipe_id = int(cd)
+    except (TypeError, ValueError):
+        return f"<em>Couldn't parse customdata: {cd!r}</em>"
+    if not (0 <= recipe_id < len(_ENGINE.recipes)):
+        return f"<em>Recipe id out of range: {recipe_id}</em>"
+    recipe = _ENGINE.recipes[recipe_id]
+    cid = int(_ENGINE.cluster_labels[recipe_id])
+    topic = _ENGINE.cluster_topics.get(cid)
+    return render_single_recipe_card(recipe, cluster_id=cid, topic=topic)
+
+
+def on_cluster_click(mapping: dict, evt: gr.SelectData):
+    """When a point on the cluster scatter is clicked, render the recipe
+    at that position as a standalone card. `mapping` comes from the State
+    that was populated when the plot was last built: it maps each
+    (trace_index, point_index) pair to the corresponding recipe id."""
+    # Diagnostic logging — helpful when debugging why a click doesn't work.
+    # Remove or lower when everything is stable.
+    print(
+        f"[click] index={getattr(evt, 'index', None)} "
+        f"value={getattr(evt, 'value', None)} "
+        f"mapping_size={len(mapping) if mapping else 0}",
+        flush=True,
+    )
+    if not mapping:
+        return (
+            "<em>Click happens after you've created a recipe — "
+            "the map is empty right now.</em>"
+        )
+    idx = getattr(evt, "index", None)
+    # Gradio's SelectData for Plotly plots has varied shapes across versions:
+    #   - [trace_idx, point_idx]                 (most common)
+    #   - just point_idx (single trace plots)
+    #   - {"point_index": ..., "curve_number": ...} (older Gradio builds)
+    t_idx = p_idx = None
+    if isinstance(idx, (list, tuple)) and len(idx) >= 2:
+        try:
+            t_idx, p_idx = int(idx[0]), int(idx[1])
+        except (TypeError, ValueError):
+            pass
+    elif isinstance(idx, dict):
+        try:
+            t_idx = int(idx.get("curve_number", 0))
+            p_idx = int(idx["point_index"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    if t_idx is None or p_idx is None:
+        return (
+            "<em>Couldn't read click coordinates — "
+            f"got index={idx!r}. Check the terminal for a [click] debug line.</em>"
+        )
+    # Mapping keys may come back as strings after JSON round-trip via gr.State.
+    recipe_id = mapping.get((t_idx, p_idx))
+    if recipe_id is None:
+        recipe_id = mapping.get(f"{t_idx},{p_idx}")
+    if recipe_id is None:
+        # Also tolerate str->str key form (some Gradio State backends).
+        recipe_id = mapping.get(f"({t_idx}, {p_idx})")
+    if recipe_id is None:
+        return (
+            f"<em>That point isn't a recipe (trace={t_idx}, pt={p_idx}) — "
+            "probably a user/highlight marker.</em>"
+        )
+    recipe = _ENGINE.recipes[int(recipe_id)]
+    cid = int(_ENGINE.cluster_labels[int(recipe_id)])
+    topic = _ENGINE.cluster_topics.get(cid)
+    return render_single_recipe_card(recipe, cluster_id=cid, topic=topic)
+
+
+# --------------------------------------------------------------------
+# UI
+# --------------------------------------------------------------------
+# JS bridge for Plotly clicks. Injected into the page <head> so it runs once
+# on initial load, BEFORE Gradio has mounted any components. A MutationObserver
+# then waits for the .js-plotly-plot div to appear and attaches a plotly_click
+# handler that relays the clicked point into our hidden relay Textbox.
+_PLOT_CLICK_SCRIPT = """
+<script>
+(function() {
+    console.log('[rr-click-bridge] script loaded');
+    const RELAY_ID = "rr-plot-click-relay";
+    const attach = () => {
+        // Gradio replaces the .js-plotly-plot element whenever the plot
+        // value changes (e.g. after Create!). Scan all divs every time and
+        // attach to any that doesn't yet have our flag.
+        const plotDivs = document.querySelectorAll('.js-plotly-plot');
+        const relay =
+            document.querySelector('#' + RELAY_ID + ' textarea')
+            || document.querySelector('#' + RELAY_ID + ' input')
+            || document.querySelector('textarea#' + RELAY_ID)
+            || document.querySelector('input#' + RELAY_ID);
+        if (!relay || plotDivs.length === 0) return;
+        plotDivs.forEach((plotDiv) => {
+            if (plotDiv.__rr_click_attached) return;
+            plotDiv.__rr_click_attached = true;
+            console.log('[rr-click-bridge] ATTACHED to', plotDiv);
+            plotDiv.on('plotly_click', function(evt) {
+                if (!evt || !evt.points || !evt.points[0]) return;
+                const p = evt.points[0];
+                const cd = (p.customdata === undefined) ? null : p.customdata;
+                const payload = JSON.stringify({
+                    trace: p.curveNumber,
+                    point: p.pointIndex,
+                    customdata: cd
+                });
+                const proto = (relay.tagName === 'TEXTAREA')
+                    ? window.HTMLTextAreaElement.prototype
+                    : window.HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                setter.call(relay, payload);
+                relay.dispatchEvent(new Event('input', {bubbles: true}));
+                console.log('[rr-click-bridge] posted payload', payload);
+            });
+        });
+    };
+    const setup = () => {
+        attach();
+        // Keep observer alive forever — Gradio may swap the .js-plotly-plot
+        // element on every plot update, and each new element needs its own
+        // click listener. attach() bails early on divs it already tagged,
+        // so re-running it on every mutation is cheap.
+        const obs = new MutationObserver(() => attach());
+        obs.observe(document.documentElement, {childList: true, subtree: true});
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
+    }
+})();
+</script>
+"""
+
+
+# CSS to hide the JS-click-relay Textbox off-screen without removing it from
+# the DOM (display:none would also kick it out of Gradio's interactive state).
+_APP_CSS = """
+.rr-hidden, .rr-hidden * {
+    position: absolute !important;
+    left: -9999px !important;
+    top: -9999px !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+}
+/* Kill Gradio Markdown's internal max-height/overflow so the generated
+   dish image on the right isn't boxed inside a scrollbar. */
+.rr-no-scroll,
+.rr-no-scroll * {
+    max-height: none !important;
+    overflow: visible !important;
+}
+/* Give each creative-recipe section its own padded card so the content
+   doesn't slam against the page edge. Using a 3-layer selector because
+   Gradio 5 wraps `gr.Group` in 2–3 nested containers, and without the
+   broader selector only a narrow inner strip picks up the styling. */
+.rr-recipe-section,
+.rr-recipe-section > div,
+.rr-recipe-section > .block {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.rr-recipe-section {
+    padding: 22px 28px !important;
+    margin: 14px 0 !important;
+    border-radius: 14px !important;
+    background: rgba(47, 84, 135, 0.14) !important;
+    border: 1px solid rgba(148, 163, 184, 0.28) !important;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10) !important;
+}
+.rr-collapse-toggle {
+    margin-top: 10px !important;
+}
+"""
+
+
+# Gradio 5.x accepts theme in Blocks(); 6.0 moved it to launch(). Pass both
+# defensively so the theme is picked up regardless of version.
+_THEME = gr.themes.Soft()
+_blocks_kwargs = {
+    "title": "🧑‍🍳 Vibe Cooking!",
+    "head": _PLOT_CLICK_SCRIPT,
+    "css": _APP_CSS,
+}
+try:
+    _blocks_kwargs["theme"] = _THEME  # ignored by 6.0 with a DeprecationWarning
+except Exception:
+    pass
+
+with gr.Blocks(**_blocks_kwargs) as demo:
+    gr.Markdown(
+        "# 🧑‍🍳 Vibe Cooking!\n"
+        "Throw in whatever you have on hand — the local **Qwen2.5-0.5B** LLM "
+        "invents a brand-new dish and the **SDXS** image model shows you what "
+        "it might look like. If the creative recipe ends up too wild, the "
+        "database below surfaces the closest *real* recipes so you always "
+        "have a safe fallback."
+    )
+
+    # Three short (≤3-ingredient) example sets designed around the creative-
+    # cooking pitch. The first is a safe-ish template for a pleasant first
+    # impression; the third deliberately pushes into truly "dark cuisine"
+    # territory to showcase when the retrieval fallback earns its keep.
+    _EXAMPLE_COZY = "chicken, garlic, lemon"
+    _EXAMPLE_BOLD = "chocolate, bacon, chili"
+    _EXAMPLE_DARK = "watermelon, mayonnaise, wasabi"
+
+    # ---------------- Input card (full-width, centered) ---------------
+    with gr.Group():
+        ingredient_tb = gr.Textbox(
+            label="Ingredients (comma- or newline-separated)",
+            placeholder="chicken, onion, tomatoes, garlic, miso",
+            lines=2,
+        )
+        gr.HTML(
+            "<div style='margin:16px 0 8px 0;color:#8ea1b8;font-style:italic;'>"
+            "Need a starting point? Try an example — or just type your own."
+            "</div>"
+        )
+        with gr.Row(equal_height=True):
+            ex_cozy_btn = gr.Button("🌿 Cozy classic")
+            ex_bold_btn = gr.Button("🔥 Bold mashup")
+            ex_dark_btn = gr.Button("💀 Dark cuisine")
+        gr.HTML("<div style='margin-bottom:14px;'></div>")
+        ex_cozy_btn.click(lambda: _EXAMPLE_COZY, outputs=ingredient_tb)
+        ex_bold_btn.click(lambda: _EXAMPLE_BOLD, outputs=ingredient_tb)
+        ex_dark_btn.click(lambda: _EXAMPLE_DARK, outputs=ingredient_tb)
+
+        with gr.Accordion("Filters & preferences", open=False):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    cuisine_cb = gr.CheckboxGroup(choices=CUISINES, label="Cuisine")
+                    meal_cb = gr.CheckboxGroup(choices=MEAL_TYPES, label="Meal type")
+                with gr.Column(scale=1):
+                    diet_cb = gr.CheckboxGroup(choices=DIET_TAGS, label="Diet / Health")
+                with gr.Column(scale=1):
+                    excluded_tb = gr.Textbox(
+                        label="Excluded ingredients (comma-separated)",
+                        placeholder="beef, peanut",
+                    )
+                    max_cal_sl = gr.Slider(0, 2000, value=0, step=50,
+                                           label="Max calories (0 = no limit)")
+                    max_time_sl = gr.Slider(0, 240, value=0, step=10,
+                                            label="Max time (min; 0 = no limit)")
+
+        with gr.Row():
+            top_k_sl = gr.Slider(
+                3, 30, value=10, step=1, scale=3,
+                label="Fallback real recipes to retrieve",
+            )
+            want_image_cb = gr.Checkbox(
+                value=True, scale=2,
+                label="Also generate a dish photo (+5-15 s each)",
+            )
+
+        # Which creative-recipe generators to run. At least one must be
+        # selected — the handler falls back to a friendly error otherwise.
+        generators_cbg = gr.CheckboxGroup(
+            choices=[
+                ("🤖 LLM (Qwen2.5-0.5B via transformers)", "llm"),
+                ("🧠 GRU (trained seq2seq + RAG grounding)", "gru"),
+            ],
+            value=["llm", "gru"],
+            label="Creative recipe generators (pick one or both)",
+        )
+
+        create_btn = gr.Button(
+            "🍳 Create!", variant="primary", size="lg",
+        )
+
+    # Chips / confirmations shown between the input card and the hero section,
+    # full width — cleaner than a tall skinny right column.
+    chips_html = gr.HTML()
+    confirm_html = gr.HTML()
+
+    # -------- Creative dishes (HERO) — one section per generator ---------
+    # The LLM section and the GRU section render the same "text-left,
+    # image-right" layout, but each has its own header / body / image slots
+    # so they can update independently. If the user deselects one generator,
+    # its section becomes visible=False (hidden entirely).
+    gr.Markdown("## ✨ Your creative dishes")
+
+    # --- LLM section ---
+    llm_section = gr.Group(visible=True, elem_classes=["rr-recipe-section"])
+    with llm_section:
+        gr.Markdown("### 🤖 LLM — Qwen2.5-0.5B")
+        llm_header_md = gr.Markdown("")
+        with gr.Row():
+            with gr.Column(scale=3):
+                with gr.Accordion(
+                    "Wanna see how AI would cook it?",
+                    open=False,
+                    elem_classes=["rr-collapse-toggle"],
+                ) as llm_recipe_accordion:
+                    llm_recipe_md = gr.Markdown(
+                        "_Hit **Create!** with **LLM** selected above to "
+                        "generate a brand-new recipe with a local language "
+                        "model._"
+                    )
+            with gr.Column(scale=2):
+                llm_image_md = gr.Markdown("", elem_classes=["rr-no-scroll"])
+
+    # --- GRU section ---
+    gru_section = gr.Group(visible=True, elem_classes=["rr-recipe-section"])
+    with gru_section:
+        gr.Markdown("### 🧠 GRU seq2seq + RAG")
+        gru_header_md = gr.Markdown("")
+        with gr.Row():
+            with gr.Column(scale=3):
+                gru_recipe_md = gr.Markdown(
+                    "_Hit **Create!** with **GRU** selected above to predict a "
+                    "title with the trained seq2seq and compose a grounded "
+                    "recipe draft from it._"
+                )
+            with gr.Column(scale=2):
+                gru_image_md = gr.Markdown("", elem_classes=["rr-no-scroll"])
+
+    # -------- Fallback: similar real recipes -----------------------------
+    gr.Markdown(
+        "## 📖 Similar real recipes (safety net)\n"
+        "_Closest matches from the dataset — useful when the creative dish "
+        "turns out inedible._"
+    )
+    retrieval_cards_html = gr.HTML("")
+
+    # -------- Recipe universe (interactive via JS bridge) ---------------
+    gr.Markdown(
+        "## 🗺️ Recipe universe\n"
+        "_Hand-implemented spherical K-Means on SBERT embeddings, visualised "
+        "via t-SNE. **Click any point** on the map to see that recipe below._"
+    )
+    cluster_plot = gr.Plot(label="K-Means clusters")
+    # `gr.Plot` (used for Plotly figures) does not expose a .select / .click
+    # event in Gradio — only Altair-backed gr.ScatterPlot/LinePlot do. To keep
+    # our rich Plotly figure AND still handle clicks, we use a JS bridge:
+    #  - a hidden Textbox (below) acts as the relay channel
+    #  - a MutationObserver-based snippet (registered in demo.load) attaches
+    #    a plotly_click listener to the rendered plot and writes the clicked
+    #    point's {trace, point, customdata} payload into the Textbox
+    #  - the Textbox's .change() fires on_plot_click_relay to render the card
+    # Keep this in the DOM (not visible=False, which strips it) but hide it
+    # via CSS so the JS bridge can find and update it. See the .rr-hidden
+    # rule in the Blocks `css=` below.
+    plot_click_relay_tb = gr.Textbox(
+        elem_id="rr-plot-click-relay",
+        elem_classes=["rr-hidden"],
+        label="",
+        show_label=False,
+    )
+    # `plot_mapping_state` is no longer used (the JS bridge reads customdata
+    # directly from the clicked point), but kept as an empty State for the
+    # `on_create` yield tuple length — removing it would mean editing every
+    # yield. Cheap to keep, effectively a no-op.
+    plot_mapping_state = gr.State({})
+    gr.Markdown("### Selected recipe")
+    clicked_recipe_html = gr.HTML(
+        "<em>Click a point on the map above to see the recipe it represents.</em>"
+    )
+
+    # Initial plot so the component isn't empty on load.
+    demo.load(lambda: build_cluster_figure(_ENGINE), inputs=None, outputs=cluster_plot)
+
+    # JS click bridge is injected via `head=` on gr.Blocks above — no
+    # per-session setup needed here. The script waits for the Plotly div
+    # to mount, then attaches a plotly_click listener that relays the
+    # clicked point into the hidden `rr-plot-click-relay` Textbox.
+
+    create_btn.click(
+        on_create,
+        inputs=[
+            ingredient_tb, cuisine_cb, diet_cb, meal_cb, excluded_tb,
+            max_cal_sl, max_time_sl, top_k_sl, want_image_cb, generators_cbg,
+        ],
+        outputs=[
+            chips_html, confirm_html,
+            llm_section, llm_header_md, llm_recipe_accordion, llm_recipe_md, llm_image_md,
+            gru_section, gru_header_md, gru_recipe_md, gru_image_md,
+            retrieval_cards_html,
+            cluster_plot, plot_mapping_state,
+            clicked_recipe_html,
+        ],
+    )
+
+    # The hidden relay Textbox fires .change() whenever the JS bridge above
+    # writes a new payload into it. That handler turns the payload into a
+    # rendered recipe card.
+    plot_click_relay_tb.change(
+        on_plot_click_relay,
+        inputs=[plot_click_relay_tb],
+        outputs=[clicked_recipe_html],
+    )
+
+
+if __name__ == "__main__":
+    # Gradio 6.0+: theme is passed to launch(). Keep it here for forward-compat.
+    _launch_kwargs: dict = {
+        "server_name": "0.0.0.0",
+        "server_port": int(os.environ.get("RR_PORT", "7860")),
+    }
+    try:
+        import inspect
+        if "theme" in inspect.signature(demo.launch).parameters:
+            _launch_kwargs["theme"] = _THEME
+    except Exception:
+        pass
+    demo.launch(**_launch_kwargs)

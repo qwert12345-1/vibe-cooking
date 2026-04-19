@@ -1,0 +1,4 @@
+models/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+models/**/*.arrow filter=lfs diff=lfs merge=lfs -text
+models/**/*.csv filter=lfs diff=lfs merge=lfs -text
+cache/*.pkl filter=lfs diff=lfs merge=lfs -text

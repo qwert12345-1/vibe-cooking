@@ -1,0 +1,48 @@
+# Conda env for the Vibe Cooking! project.
+#   conda env create -f environment.yml
+#   conda activate recipe_recommender
+#
+# We pull heavier packages (torch, pytorch-cpu, llama-cpp-python) from
+# conda-forge where their binary wheels are reliable on Windows. Everything
+# else comes from pip to match requirements.txt pins.
+name: creative_recipe
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+
+  # --- Core scientific stack (conda-forge is reliable on Windows) ---------
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=2.0
+  - scikit-learn>=1.3
+  - nltk>=3.8
+
+  # --- Tokenizer deps that Qwen2.5 and several other HF tokenizers need at
+  # --- load time. Without these, transformers' `AutoTokenizer.from_pretrained`
+  # --- raises ImportError deep inside the slow-tokenizer fallback and the
+  # --- app's `local_files_only=True` branch mis-reports it as "Cache miss".
+  - protobuf>=3.20
+  - sentencepiece>=0.1.99
+
+  # --- Torch CPU (conda-forge on Windows defaults to CPU when no CUDA
+  # --- is installed, so the `cpuonly` marker from the pytorch channel
+  # --- isn't needed / available). --------------------------------------
+  - pytorch>=2.4
+
+  # --- Everything else via pip --------------------------------------------
+  - pip:
+      - accelerate>=0.33.0
+      - transformers>=4.46.0
+      - sentence-transformers>=3.0.0
+      - huggingface_hub>=0.24.0
+      - datasets>=2.14.0
+      - rapidfuzz>=3.0.0
+      - gradio>=5.0,<6.0
+      - plotly>=5.15.0
+      - diffusers>=0.30.0
+      - Pillow>=10.0.0
+      - requests>=2.31.0
+      - charset_normalizer>=3.0.0
