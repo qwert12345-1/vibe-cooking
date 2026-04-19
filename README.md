@@ -16,7 +16,7 @@ Everything runs **locally on CPU**. No API keys, no remote services.
 
 ---
 
-## TA quickstart (if everything is bundled in the zip)
+## Quickstart (if everything is bundled in the zip)
 
 The submission ships with all models, NLTK data and the built engine cache
 pre-packed inside the project tree, so you only need to install the Python
