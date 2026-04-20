@@ -74,7 +74,7 @@ def main() -> int:
     # Sanity check: the app-built artifacts that should also be in the zip.
     for mandatory in (
         project_root / "cache" / "engine.pkl",
-        project_root / "gru_checkpoints" / "best.pt",
+        project_root / "seq2seq_checkpoints" / "best.pt",
     ):
         if mandatory.exists():
             print(f"[bundle] OK — {mandatory.relative_to(project_root)}")

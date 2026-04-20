@@ -15,6 +15,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 import re
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 
@@ -159,6 +160,31 @@ _bundle_lock = threading.Lock()
 _load_error: Optional[str] = None
 
 
+def _cached_snapshot_dir(repo_id: str) -> str | None:
+    """Resolve a repo id to its newest local HF snapshot directory, if any."""
+    hub_cache = os.environ.get("HF_HUB_CACHE")
+    if not hub_cache:
+        return None
+
+    repo_dir = Path(hub_cache) / f"models--{repo_id.replace('/', '--')}"
+    refs_main = repo_dir / "refs" / "main"
+    if refs_main.exists():
+        revision = refs_main.read_text(encoding="utf-8").strip()
+        snapshot_dir = repo_dir / "snapshots" / revision
+        if snapshot_dir.is_dir():
+            return str(snapshot_dir)
+
+    snapshots_dir = repo_dir / "snapshots"
+    if not snapshots_dir.is_dir():
+        return None
+
+    candidates = [p for p in snapshots_dir.iterdir() if p.is_dir()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(candidates[0])
+
+
 def _load_llm():
     """Load the tokenizer + CausalLM once. Thread-safe and idempotent.
 
@@ -189,12 +215,15 @@ def _load_llm():
             # code updates, which network-times-out even when
             # local_files_only=True is set (the flag only skips weight
             # downloads, not remote-code metadata checks).
+            source = DEFAULT_MODEL
+            if local_only:
+                source = _cached_snapshot_dir(DEFAULT_MODEL) or DEFAULT_MODEL
             tok = AutoTokenizer.from_pretrained(
-                DEFAULT_MODEL,
+                source,
                 local_files_only=local_only,
             )
             mdl = AutoModelForCausalLM.from_pretrained(
-                DEFAULT_MODEL,
+                source,
                 local_files_only=local_only,
                 torch_dtype=torch.float32,
                 low_cpu_mem_usage=False,
@@ -210,6 +239,9 @@ def _load_llm():
             # someone's env var is overriding ours.
             print(f"[creative]   HF_HOME={os.environ.get('HF_HOME')!r}", flush=True)
             print(f"[creative]   HF_HUB_CACHE={os.environ.get('HF_HUB_CACHE')!r}", flush=True)
+            local_snapshot = _cached_snapshot_dir(DEFAULT_MODEL)
+            if local_snapshot:
+                print(f"[creative]   local snapshot={local_snapshot!r}", flush=True)
             try:
                 _bundle = _load(local_only=True)
                 print("[creative] Loaded from local cache (no network).", flush=True)

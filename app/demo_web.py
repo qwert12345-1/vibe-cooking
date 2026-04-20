@@ -65,7 +65,7 @@ from app.components import (  # noqa: E402
 from app.visualizer import build_cluster_figure  # noqa: E402
 from src.constants import CUISINES, DIET_TAGS, MEAL_TYPES  # noqa: E402
 from src.creative import generate_recipe  # noqa: E402
-from src.gru_backend import generate_gru_recipe  # noqa: E402
+from src.seq2seq_backend import generate_seq2seq_recipe  # noqa: E402
 from src.normalizer import flatten_resolved  # noqa: E402
 from src.recommender import Filters, RecipeRecommender  # noqa: E402
 from src.visualize_dish import generate_dish_image  # noqa: E402
@@ -91,14 +91,14 @@ if os.environ.get("RR_NO_LLM_PRELOAD", "0") != "1":
     _load_llm()
     print("Creative LLM preload finished.")
 
-# Same treatment for the GRU seq2seq title model. Small (~30 MB checkpoint),
+# Same treatment for the SEQ2SEQ seq2seq title model. Small (~30 MB checkpoint),
 # so this is fast even on the first run.
-if (os.environ.get("RR_NO_GRU_PRELOAD", "0") != "1"
-        and os.environ.get("RR_NO_GRU", "0") != "1"):
-    from src.gru_backend import _load_bundle as _load_gru  # noqa: E402
-    print("Preloading GRU seq2seq model...")
-    _load_gru()
-    print("GRU preload finished.")
+if (os.environ.get("RR_NO_SEQ2SEQ_PRELOAD", "0") != "1"
+        and os.environ.get("RR_NO_SEQ2SEQ", "0") != "1"):
+    from src.seq2seq_backend import _load_bundle as _load_seq2seq  # noqa: E402
+    print("Preloading SEQ2SEQ seq2seq model...")
+    _load_seq2seq()
+    print("SEQ2SEQ preload finished.")
 
 # Same treatment for the text-to-image pipeline. First run still incurs the
 # ~1.5 GB (SDXS) or ~4 GB (SD 1.5) download; after that startup is quick.
@@ -264,7 +264,7 @@ def _dish_image_markdown(image_result) -> str:
 def _image_md_for(recipe_text: str, resolved: list[str]) -> str:
     """Run the T2I generator on an already-produced recipe and return the
     markdown to drop into that generator's image slot. Keeps the two
-    generator branches (LLM / GRU) symmetric so `on_create` stays readable."""
+    generator branches (LLM / SEQ2SEQ) symmetric so `on_create` stays readable."""
     image_result = generate_dish_image(recipe_text, resolved)
     if not image_result.ok:
         return (
@@ -292,7 +292,7 @@ def on_create(
         ( chips_html, confirm_html,
           llm_section_visibility, llm_header_md, llm_recipe_accordion,
           llm_recipe_md, llm_image_md,
-          gru_section_visibility, gru_header_md, gru_recipe_md, gru_image_md,
+          seq2seq_section_visibility, seq2seq_header_md, seq2seq_recipe_md, seq2seq_image_md,
           retrieval_cards_html, cluster_plot, plot_mapping_state,
           clicked_recipe_html )
     """
@@ -308,10 +308,10 @@ def on_create(
         llm_recipe_open: bool = False,
         llm_body: str = "",
         llm_image: str = "",
-        gru_visible: bool = True,
-        gru_header: str = "",
-        gru_body: str = "",
-        gru_image: str = "",
+        seq2seq_visible: bool = True,
+        seq2seq_header: str = "",
+        seq2seq_body: str = "",
+        seq2seq_image: str = "",
         retrieval: str = "",
         fig=empty_fig_update,
         mapping: dict = empty_state,
@@ -327,19 +327,19 @@ def on_create(
             ),
             llm_body,
             llm_image,
-            gr.update(visible=gru_visible), gru_header, gru_body, gru_image,
+            gr.update(visible=seq2seq_visible), seq2seq_header, seq2seq_body, seq2seq_image,
             retrieval, fig, mapping, clicked,
         )
 
     want_llm = "llm" in (generators or [])
-    want_gru = "gru" in (generators or [])
+    want_seq2seq = "seq2seq" in (generators or [])
 
-    if not want_llm and not want_gru:
-        warning = "⚠️ Select at least one generator (LLM or GRU) to run."
+    if not want_llm and not want_seq2seq:
+        warning = "⚠️ Select at least one generator (LLM or SEQ2SEQ) to run."
         yield payload(
-            chips="<em>Pick LLM or GRU (or both) above before hitting Create.</em>",
+            chips="<em>Pick LLM or SEQ2SEQ (or both) above before hitting Create.</em>",
             llm_recipe_open=True,
-            llm_body=warning, gru_body=warning,
+            llm_body=warning, seq2seq_body=warning,
         )
         return
 
@@ -348,10 +348,10 @@ def on_create(
         yield payload(
             chips="<em>Enter at least one ingredient above.</em>",
             llm_visible=want_llm,
-            gru_visible=want_gru,
+            seq2seq_visible=want_seq2seq,
             llm_recipe_open=want_llm,
             llm_body="_Type at least one ingredient above and hit the button._",
-            gru_body="_Type at least one ingredient above and hit the button._",
+            seq2seq_body="_Type at least one ingredient above and hit the button._",
         )
         return
 
@@ -363,10 +363,10 @@ def on_create(
     if not resolved:
         yield payload(
             chips=chips_val, confirm=confirm_val,
-            llm_visible=want_llm, gru_visible=want_gru,
+            llm_visible=want_llm, seq2seq_visible=want_seq2seq,
             llm_recipe_open=want_llm,
             llm_body="⚠️ Couldn't resolve any of your ingredients.",
-            gru_body="⚠️ Couldn't resolve any of your ingredients.",
+            seq2seq_body="⚠️ Couldn't resolve any of your ingredients.",
         )
         return
 
@@ -380,10 +380,10 @@ def on_create(
     )
     yield payload(
         chips=chips_val, confirm=confirm_val,
-        llm_visible=want_llm, gru_visible=want_gru,
+        llm_visible=want_llm, seq2seq_visible=want_seq2seq,
         llm_recipe_open=want_llm,
         llm_body=init_body if want_llm else "",
-        gru_body=init_body if want_gru else "",
+        seq2seq_body=init_body if want_seq2seq else "",
         retrieval=_progress_markdown("Finding similar real recipes in the dataset…"),
     )
 
@@ -415,23 +415,23 @@ def on_create(
     else:
         top_card_html = "<em>No recipes matched your filters.</em>"
 
-    llm_body = gru_body = ""
-    llm_header = gru_header = ""
-    llm_image = gru_image = ""
+    llm_body = seq2seq_body = ""
+    llm_header = seq2seq_header = ""
+    llm_image = seq2seq_image = ""
     llm_ok = False
 
     # ---- Stage 3: LLM branch ---------------------------------------------
     if want_llm:
         yield payload(
             chips=chips_val, confirm=confirm_val,
-            llm_visible=want_llm, gru_visible=want_gru,
+            llm_visible=want_llm, seq2seq_visible=want_seq2seq,
             llm_recipe_open=True,
             llm_body=_progress_markdown(
                 "Generating with Qwen2.5-0.5B on CPU (transformers) — ~30 to 90 s…",
                 f"**Canonical ingredients:** _{preview}_",
             ),
-            gru_body=(_progress_markdown("Queued — starts after LLM…")
-                     if want_gru else ""),
+            seq2seq_body=(_progress_markdown("Queued — starts after LLM…")
+                     if want_seq2seq else ""),
             retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
         )
 
@@ -459,84 +459,84 @@ def on_create(
         if want_image and llm_result.ok:
             yield payload(
                 chips=chips_val, confirm=confirm_val,
-                llm_visible=want_llm, gru_visible=want_gru,
+                llm_visible=want_llm, seq2seq_visible=want_seq2seq,
                 llm_header=llm_header,
                 llm_recipe_open=not llm_ok,
                 llm_body=llm_body,
                 llm_image="### Dish preview\n\n" + _image_placeholder(
                     "Rendering LLM dish image — ~5–15 s on CPU with SDXS…"
                 ),
-                gru_body=(_progress_markdown("Queued — starts after LLM image…")
-                         if want_gru else ""),
+                seq2seq_body=(_progress_markdown("Queued — starts after LLM image…")
+                         if want_seq2seq else ""),
                 retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
             )
             llm_image = _image_md_for(llm_result.text, resolved)
 
         yield payload(
             chips=chips_val, confirm=confirm_val,
-            llm_visible=want_llm, gru_visible=want_gru,
+            llm_visible=want_llm, seq2seq_visible=want_seq2seq,
             llm_header=llm_header,
             llm_recipe_open=not llm_ok,
             llm_body=llm_body,
             llm_image=llm_image,
-            gru_body=(_progress_markdown("Starting GRU…")
-                     if want_gru else ""),
+            seq2seq_body=(_progress_markdown("Starting SEQ2SEQ…")
+                     if want_seq2seq else ""),
             retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
         )
 
-    # ---- Stage 4: GRU branch ---------------------------------------------
-    if want_gru:
+    # ---- Stage 4: SEQ2SEQ branch ---------------------------------------------
+    if want_seq2seq:
         yield payload(
             chips=chips_val, confirm=confirm_val,
-            llm_visible=want_llm, gru_visible=want_gru,
+            llm_visible=want_llm, seq2seq_visible=want_seq2seq,
             llm_header=llm_header,
             llm_recipe_open=not llm_ok,
             llm_body=llm_body,
             llm_image=llm_image,
-            gru_body=_progress_markdown(
-                "Running GRU seq2seq + RAG draft — ~2 to 5 s…",
+            seq2seq_body=_progress_markdown(
+                "Running SEQ2SEQ seq2seq + RAG draft — ~2 to 5 s…",
                 f"**Canonical ingredients:** _{preview}_",
             ),
             retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
         )
 
-        gru_result = generate_gru_recipe(resolved, engine=_ENGINE)
-        if not gru_result.ok:
-            gru_body = gru_result.text
-            gru_header = ""
+        seq2seq_result = generate_seq2seq_recipe(resolved, engine=_ENGINE)
+        if not seq2seq_result.ok:
+            seq2seq_body = seq2seq_result.text
+            seq2seq_header = ""
         else:
-            gru_header = (
-                "_Generated by the hand-trained GRU seq2seq + retrieval-"
+            seq2seq_header = (
+                "_Generated by the hand-trained SEQ2SEQ seq2seq + retrieval-"
                 "augmented draft composer — title predicted by the model, "
                 "ingredients/steps grounded in the top-5 retrieval matches._"
             )
-            gru_body = gru_result.text
+            seq2seq_body = seq2seq_result.text
 
-        if want_image and gru_result.ok:
+        if want_image and seq2seq_result.ok:
             yield payload(
                 chips=chips_val, confirm=confirm_val,
-                llm_visible=want_llm, gru_visible=want_gru,
+                llm_visible=want_llm, seq2seq_visible=want_seq2seq,
                 llm_header=llm_header,
                 llm_recipe_open=not llm_ok,
                 llm_body=llm_body,
                 llm_image=llm_image,
-                gru_header=gru_header, gru_body=gru_body,
-                gru_image="### Dish preview\n\n" + _image_placeholder(
-                    "Rendering GRU dish image — ~5–15 s on CPU with SDXS…"
+                seq2seq_header=seq2seq_header, seq2seq_body=seq2seq_body,
+                seq2seq_image="### Dish preview\n\n" + _image_placeholder(
+                    "Rendering SEQ2SEQ dish image — ~5–15 s on CPU with SDXS…"
                 ),
                 retrieval=retrieval_html, fig=fig, mapping=plot_mapping, clicked=top_card_html,
             )
-            gru_image = _image_md_for(gru_result.text, resolved)
+            seq2seq_image = _image_md_for(seq2seq_result.text, resolved)
 
     # ---- Final ----------------------------------------------------------
     yield payload(
         chips=chips_val, confirm=confirm_val,
-        llm_visible=want_llm, gru_visible=want_gru,
+        llm_visible=want_llm, seq2seq_visible=want_seq2seq,
         llm_header=llm_header,
         llm_recipe_open=not llm_ok,
         llm_body=llm_body,
         llm_image=llm_image,
-        gru_header=gru_header, gru_body=gru_body, gru_image=gru_image,
+        seq2seq_header=seq2seq_header, seq2seq_body=seq2seq_body, seq2seq_image=seq2seq_image,
         retrieval=retrieval_html, fig=fig, mapping=plot_mapping,
         clicked=top_card_html,
     )
@@ -827,9 +827,9 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         generators_cbg = gr.CheckboxGroup(
             choices=[
                 ("🤖 LLM (Qwen2.5-0.5B via transformers)", "llm"),
-                ("🧠 GRU (trained seq2seq + RAG grounding)", "gru"),
+                ("🧠 SEQ2SEQ (trained seq2seq + RAG grounding)", "seq2seq"),
             ],
-            value=["llm", "gru"],
+            value=["llm", "seq2seq"],
             label="Creative recipe generators (pick one or both)",
         )
 
@@ -843,7 +843,7 @@ with gr.Blocks(**_blocks_kwargs) as demo:
     confirm_html = gr.HTML()
 
     # -------- Creative dishes (HERO) — one section per generator ---------
-    # The LLM section and the GRU section render the same "text-left,
+    # The LLM section and the SEQ2SEQ section render the same "text-left,
     # image-right" layout, but each has its own header / body / image slots
     # so they can update independently. If the user deselects one generator,
     # its section becomes visible=False (hidden entirely).
@@ -869,20 +869,20 @@ with gr.Blocks(**_blocks_kwargs) as demo:
             with gr.Column(scale=2):
                 llm_image_md = gr.Markdown("", elem_classes=["rr-no-scroll"])
 
-    # --- GRU section ---
-    gru_section = gr.Group(visible=True, elem_classes=["rr-recipe-section"])
-    with gru_section:
-        gr.Markdown("### 🧠 GRU seq2seq + RAG")
-        gru_header_md = gr.Markdown("")
+    # --- SEQ2SEQ section ---
+    seq2seq_section = gr.Group(visible=True, elem_classes=["rr-recipe-section"])
+    with seq2seq_section:
+        gr.Markdown("### 🧠 SEQ2SEQ seq2seq + RAG")
+        seq2seq_header_md = gr.Markdown("")
         with gr.Row():
             with gr.Column(scale=3):
-                gru_recipe_md = gr.Markdown(
-                    "_Hit **Create!** with **GRU** selected above to predict a "
+                seq2seq_recipe_md = gr.Markdown(
+                    "_Hit **Create!** with **SEQ2SEQ** selected above to predict a "
                     "title with the trained seq2seq and compose a grounded "
                     "recipe draft from it._"
                 )
             with gr.Column(scale=2):
-                gru_image_md = gr.Markdown("", elem_classes=["rr-no-scroll"])
+                seq2seq_image_md = gr.Markdown("", elem_classes=["rr-no-scroll"])
 
     # -------- Fallback: similar real recipes -----------------------------
     gr.Markdown(
@@ -943,7 +943,7 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         outputs=[
             chips_html, confirm_html,
             llm_section, llm_header_md, llm_recipe_accordion, llm_recipe_md, llm_image_md,
-            gru_section, gru_header_md, gru_recipe_md, gru_image_md,
+            seq2seq_section, seq2seq_header_md, seq2seq_recipe_md, seq2seq_image_md,
             retrieval_cards_html,
             cluster_plot, plot_mapping_state,
             clicked_recipe_html,
@@ -965,6 +965,7 @@ if __name__ == "__main__":
     _launch_kwargs: dict = {
         "server_name": "0.0.0.0",
         "server_port": int(os.environ.get("RR_PORT", "7860")),
+        "inbrowser": True,
     }
     try:
         import inspect
