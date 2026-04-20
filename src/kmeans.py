@@ -1,7 +1,7 @@
-"""[HAND-IMPLEMENTED] K-Means++ clustering with elbow analysis for choosing k.
+"""K-Means++ clustering with elbow analysis for choosing k using NumPy
 
-Implemented with numpy only. Supports dense numpy matrices. For the recipe
-application, we run K-Means on 2-D or low-dim embeddings — not on the sparse
+Supports dense numpy matrices. For the recipe application, 
+we run K-Means on 2-D or low-dim embeddings — not on the sparse
 TF-IDF matrix directly — so dense arithmetic is fine and appropriate.
 """
 from __future__ import annotations
@@ -11,6 +11,8 @@ from dataclasses import dataclass
 import numpy as np
 
 
+# stores the resuult of clustering: centroids, labels, inertia, and number of iterations
+# returned by `fit_kmeans`
 @dataclass
 class KMeansResult:
     centroids: np.ndarray       # (k, d)
@@ -19,66 +21,71 @@ class KMeansResult:
     n_iter: int
 
 
+# initializes centroids using the K-Means++ strategy
+# chooses first center uniformly random, then chooses later centers with probability
+# proportional to squared distance from existing centers (gives better clustering than random initialization)
 def _kmeans_plus_plus_init(X: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
-    """K-Means++ seeding: pick first center uniformly, subsequent centers with prob ∝ D²."""
     n, d = X.shape
     centroids = np.empty((k, d), dtype=X.dtype)
-    first = int(rng.integers(0, n))
+    first = int(rng.integers(0, n)) # uniformly random chosen the first center
     centroids[0] = X[first]
-    # Squared distance of each point to its nearest already-chosen centroid.
-    closest_sq = np.sum((X - centroids[0]) ** 2, axis=1)
+    closest_sq = np.sum((X - centroids[0]) ** 2, axis=1) # Squared distance of each point to its nearest already-chosen centroid
     for i in range(1, k):
         total = closest_sq.sum()
         if total <= 0:
-            # Degenerate case — all points coincide; just repeat.
+            # Degenerate case — all points coincide; just do it again
             centroids[i] = centroids[0]
             continue
-        probs = closest_sq / total
+        probs = closest_sq / total # probability proportional to squared distance from existing centers
         idx = int(rng.choice(n, p=probs))
-        centroids[i] = X[idx]
+        centroids[i] = X[idx] # choose the next center
         new_sq = np.sum((X - centroids[i]) ** 2, axis=1)
-        closest_sq = np.minimum(closest_sq, new_sq)
+        closest_sq = np.minimum(closest_sq, new_sq) # update the squared distances to the nearest centroid
     return centroids
 
 
+# assigns each data point to its nearest centroid and computes the inertia
+# uses the identity ||x - c||^2 = ||x||^2 + ||c||^2 - 2 x·c so the heavy
+# lifting becomes a single BLAS matrix multiply of shape (n, d) × (d, k) 
 def _assign(X: np.ndarray, centroids: np.ndarray) -> tuple[np.ndarray, float]:
-    """Assign each point to the nearest centroid. Return (labels, inertia).
+    x_sq = np.einsum("ij,ij->i", X, X)[:, None]        # squares every row, and smush it into a column vector
+    c_sq = np.einsum("ij,ij->i", centroids, centroids) # same thing to the 20 centroids, and smush them into flat vector
+    d2 = x_sq + c_sq[None, :] - 2.0 * (X @ centroids.T) # squared L2 distance 
 
-    Uses the identity ||x - c||^2 = ||x||^2 + ||c||^2 - 2 x·c so the heavy
-    lifting becomes a single BLAS matrix multiply of shape (n, d) × (d, k).
-    The previous implementation materialized an (n, k, d) broadcast tensor,
-    which blew up memory and wall time at n=39k, k up to 50, d=50.
-    """
-    x_sq = np.einsum("ij,ij->i", X, X)[:, None]        # (n, 1)
-    c_sq = np.einsum("ij,ij->i", centroids, centroids) # (k,)
-    d2 = x_sq + c_sq[None, :] - 2.0 * (X @ centroids.T)
-    # Float rounding can push diagonal terms slightly negative — clip.
-    np.maximum(d2, 0.0, out=d2)
-    labels = np.argmin(d2, axis=1)
-    inertia = float(d2[np.arange(X.shape[0]), labels].sum())
+    np.maximum(d2, 0.0, out=d2) # safety clip for floating point errors
+
+    labels = np.argmin(d2, axis=1) # assign to its nearest centroid
+    inertia = float(d2[np.arange(X.shape[0]), labels].sum()) # sum of squared L2 distances to nearest centroid
     return labels, inertia
 
 
+# recomputes each centroid as the mean of the points assigned to it
+# if a cluster ends up empty, it reseeds that centroid with a random data point
+# so basically all recipes have chosen their teams, and now the centroid itself has to physically move to the 
+# center to the exact average center of all the recipes that has joined its team :)
 def _update(X: np.ndarray, labels: np.ndarray, k: int, prev: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Recompute centroids as the mean of assigned points. Re-seed empty clusters."""
     d = X.shape[1]
     new = np.empty((k, d), dtype=X.dtype)
     for i in range(k):
         mask = labels == i
         if not np.any(mask):
-            # Empty cluster: re-seed with a random data point to avoid collapse.
             new[i] = X[int(rng.integers(0, X.shape[0]))]
         else:
             new[i] = X[mask].mean(axis=0)
     return new
 
-
+# math... L2 norm of the input vectors (to get all vectors with length of 1.0)
+# and to calculate cosine similarity by calculating L2 distance on normalized vectors
+# which is the best way to compare TF-IDF ingredient lists!
 def _l2_normalize(X: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1.0, norms)
     return X / norms
 
 
+# main clustering function that supports both Euclidean and spherical K-Means for cosine similarity
+# runs multiple random initializations and returns the best one
+# each run, it alternates between assigning points to clusters and updating centroids till convergence
 def fit_kmeans(
     X: np.ndarray,
     k: int,
@@ -133,6 +140,7 @@ def fit_kmeans(
     return best
 
 
+# elbow analysis to determine the optimal number of clusters
 def elbow_analysis(
     X: np.ndarray,
     k_values: list[int],
@@ -166,17 +174,22 @@ def elbow_analysis(
     }
 
 
+# simple elbow heristic to pick the best k by treating the inertia curve as lots of 
+# points on 2-D plane and connecting (k_min, inertia_min) to (k_max, inertia_max)
+# then find the point that is farthest from that line
 def choose_k_elbow(inertias: dict[int, float]) -> int:
-    """Heuristic elbow selection: the k that maximizes distance from the line
-    connecting (k_min, inertia_min) to (k_max, inertia_max)."""
     ks = sorted(inertias.keys())
     pts = np.array([[k, inertias[k]] for k in ks], dtype=np.float64)
     # Normalize so both axes have comparable scale.
     pts_n = (pts - pts.min(axis=0)) / (np.ptp(pts, axis=0) + 1e-12)
+
+    # start and end points of the line
     start, end = pts_n[0], pts_n[-1]
     line = end - start
-    line_norm = line / (np.linalg.norm(line) + 1e-12)
-    distances = []
+    line_norm = line / (np.linalg.norm(line) + 1e-12) 
+
+    # calculate the distance of each point from the line
+    distances = [] 
     for p in pts_n:
         v = p - start
         proj = np.dot(v, line_norm) * line_norm

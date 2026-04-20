@@ -436,6 +436,10 @@ def on_create(
         )
 
         chosen_cuisine = cuisine[0] if cuisine else None
+        
+        import re
+        lang_override = "zh" if re.search(r"[\u4e00-\u9fff]", ingredient_text) else "en"
+        
         llm_result = generate_recipe(
             ingredients=resolved,
             cuisine=chosen_cuisine,
@@ -444,6 +448,7 @@ def on_create(
             meal_type=meal_type or None,
             max_calories=(max_calories if max_calories and max_calories > 0 else None),
             max_time_minutes=(max_time if max_time and max_time > 0 else None),
+            language=lang_override,
         )
         if not llm_result.ok:
             llm_body = llm_result.text

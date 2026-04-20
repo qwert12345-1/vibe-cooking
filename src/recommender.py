@@ -95,31 +95,38 @@ class RecipeRecommender:
         self.recipe_matrix = recipe_matrix
         self.cluster_labels = cluster_labels
         self.projection_2d = projection_2d
+
         # `cluster_embeddings` is the high-dim space K-Means was actually fit on.
         # `projection_2d` is its 2-D projection used only for visualization.
         # If not supplied (old caches), fall back to the 2-D projection.
         self.cluster_embeddings = (
             cluster_embeddings if cluster_embeddings is not None else projection_2d
         )
+
         # `svd_components` is the V basis (vocab_size, n_components) from the SVD
         # used to build `cluster_embeddings` — lets us project new query vectors
         # into the same 2-D space where the recipes live.
         self.svd_components = svd_components
+
         # LDA (or fallback) transformer from high-dim cluster space → 2-D.
         # Supervised on cluster labels so clusters visually separate.
         self.viz_projector = viz_projector
+
         # Dense SBERT recipe embeddings (N, 384), L2-normalized. Enables hybrid
         # retrieval (TF-IDF + SBERT cosine fusion) and semantic cluster labels.
         # Optional — old caches built before this change have None here.
         self.recipe_sbert = recipe_sbert
+
         # Human-readable topic label per cluster, picked by matching cluster
         # mean embedding to `CLUSTER_TOPIC_CANDIDATES`.
         self.cluster_topics = cluster_topics or {}
+
         # Which feature space K-Means was actually fit on. Determines how we
         # encode a user query into the same space for `project_user_position`.
         self.cluster_embed_source = cluster_embed_source
         self.normalizer = normalizer or Normalizer(vocabulary)
         self._ingredient_sets: list[set[str]] = [set(r.ingredients) for r in recipes]
+        
         # Per-recipe mass map {food: grams} for non-pantry ingredients only.
         # Used by `fused_score` to make coverage mass-weighted — e.g. a
         # recipe's 500 g of chicken counts much more than its 5 g of basil,
@@ -128,6 +135,7 @@ class RecipeRecommender:
         self._ingredient_weights: list[dict[str, float]] = [
             _build_ingredient_weights(r) for r in recipes
         ]
+
         # Precompute which vocabulary columns correspond to pantry staples — used
         # both when building the clustering space and when labeling clusters.
         self._pantry_col_idx = np.array(

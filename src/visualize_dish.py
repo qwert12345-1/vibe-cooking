@@ -22,8 +22,6 @@ Upgrade recipe:
 from __future__ import annotations
 
 import os
-# HF mirror for restricted networks; set before any HuggingFace import.
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import base64
 import re
@@ -95,14 +93,13 @@ def _load_pipeline():
             approx_mb = "~1.5 GB" if _IS_SDXS else "~4 GB"
             print(
                 f"[image] Loading SD pipeline {DEFAULT_REPO!r} "
-                f"(first run downloads {approx_mb} via HF mirror)...",
+                f"(first run downloads {approx_mb})...",
                 flush=True,
             )
             # Prefer the cached copy (local_files_only=True) so we skip the
-            # "is my cache still up to date?" HEAD request against HF. That
-            # request times out on restricted networks even when the weights
-            # are already on disk. Fall back to a normal (online) fetch only
-            # if the cache really is empty.
+            # "is my cache still up to date?" HEAD request against HF. By bypassing
+            # the network, the image generator module will boot instantaneously.
+            # Fall back to a normal (online) fetch only if the cache really is empty.
             _common_kwargs = dict(
                 torch_dtype=torch.float32,       # fp16 is unreliable on CPU
                 safety_checker=None,             # skip NSFW filter for speed

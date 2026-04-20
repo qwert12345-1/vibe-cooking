@@ -1,4 +1,6 @@
-"""HF dataset download, JSON field parsing, ingredient-vocabulary construction."""
+"""This downloads recipes from Hugging Face, parses messy JSON field, cleans ingredient
+names, and converts everything into a structured Recipe object. It also builds and caches
+the dataset so we don't have to reload it everytime we run it. """
 from __future__ import annotations
 
 import json
@@ -9,15 +11,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Use HF mirror by default for users behind restricted networks (e.g. mainland China).
-# Override by setting HF_ENDPOINT explicitly before importing this module.
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-
 CACHE_DIR = Path("cache")
 DATA_DIR = Path("data")
 DATASET_ID = "datahiveai/recipes-with-nutrition"
 
 
+# dataclass to store each recipe, giving the rest of the code a clean object
+# to work with instead of messy raw dataset rows
 @dataclass
 class Recipe:
     id: int
@@ -36,13 +36,14 @@ class Recipe:
     extras: dict = field(default_factory=dict)
 
 
+# creates the cache and data dictionaries if not already existing
 def _ensure_dirs() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# columns often store list/dictionary fields as JSON strings — parse defensively
 def _parse_json_field(value: Any) -> Any:
-    """HF columns often store list/dict fields as JSON strings — parse defensively."""
     if value is None:
         return None
     if isinstance(value, (list, dict)):
@@ -62,8 +63,9 @@ def _parse_json_field(value: Any) -> Any:
     return value
 
 
+# normalizes an ingredient string by lwer casing it, trimming whitespace, collapse
+# repeated spaces, and stripping punctuations from the ends (cleanup step before storing ingredients)
 def _clean_food_name(name: str) -> str:
-    """Lowercase, strip, collapse whitespace, remove leading/trailing punctuation."""
     if not name:
         return ""
     s = name.lower().strip()
@@ -72,8 +74,9 @@ def _clean_food_name(name: str) -> str:
     return s
 
 
+# parses the raw ingredient field and return a list of clean ingredient names and 
+# a list of the original ingredient dicts (giving both a canonical ingredient and original metadata)
 def _extract_ingredients(raw_field: Any) -> tuple[list[str], list[dict]]:
-    """Return (canonical_names, original_dicts)."""
     parsed = _parse_json_field(raw_field)
     if not isinstance(parsed, list):
         return [], []
@@ -92,6 +95,8 @@ def _extract_ingredients(raw_field: Any) -> tuple[list[str], list[dict]]:
     return names, dicts
 
 
+# helper to convert a value into a list of strings (used for cuisine, diet_labels, health_labels, meal_type
+# since they may come in as JSON strings, single strings, or list already)
 def _as_list(value: Any) -> list[str]:
     parsed = _parse_json_field(value)
     if parsed is None:
@@ -103,6 +108,8 @@ def _as_list(value: Any) -> list[str]:
     return []
 
 
+# helper to convert a value into a float (used for calories, total_time, servings) and return default
+# value if the value is None or empty string or cannot be converted to float
 def _as_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
@@ -112,8 +119,9 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+# main dataset-loading function: first checks whether a cache file already exists, if so, it loads the cached data
+# otherwise, it loads the dataset from Hugging Face and caches it
 def load_recipes(use_cache: bool = True, limit: int | None = None) -> list[Recipe]:
-    """Load and parse the HF recipes dataset. Caches a pickled list of Recipe objects."""
     _ensure_dirs()
     cache_path = CACHE_DIR / "recipes.pkl"
     if use_cache and cache_path.exists():
@@ -156,6 +164,7 @@ def load_recipes(use_cache: bool = True, limit: int | None = None) -> list[Recip
         )
         recipes.append(recipe)
 
+    # cache the loaded recipes
     with open(cache_path, "wb") as f:
         pickle.dump(recipes, f)
     if limit:
@@ -163,8 +172,10 @@ def load_recipes(use_cache: bool = True, limit: int | None = None) -> list[Recip
     return recipes
 
 
+# computes the ingredient vocabulary by counting in how many recipes each ingredient appears
+# and returns a sorted list of ingredients that appear in at least "min_df" recipes 
+# (avoided clutter from extremely rare tokens)
 def build_vocabulary(recipes: list[Recipe], min_df: int = 3) -> list[str]:
-    """Return sorted list of ingredient tokens appearing in at least `min_df` recipes."""
     from collections import Counter
     df = Counter()
     for r in recipes:
@@ -174,12 +185,14 @@ def build_vocabulary(recipes: list[Recipe], min_df: int = 3) -> list[str]:
     return vocab
 
 
+# saving the covabulary to a pickle file (easy to be reused later)
 def save_vocab(vocab: list[str], path: str | Path = CACHE_DIR / "vocab.pkl") -> None:
     _ensure_dirs()
     with open(path, "wb") as f:
         pickle.dump(vocab, f)
 
 
+# loads a previously saved vocab from disk if exists, if not, return None
 def load_vocab(path: str | Path = CACHE_DIR / "vocab.pkl") -> list[str] | None:
     p = Path(path)
     if not p.exists():

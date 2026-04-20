@@ -23,6 +23,7 @@ from typing import Optional
 from .constants import ALIASES, SUPERORDINATES
 
 
+# dataclass to store the result of noramlizing one input token
 @dataclass
 class NormalizedToken:
     original: str
@@ -33,12 +34,12 @@ class NormalizedToken:
 
     @property
     def needs_confirmation(self) -> bool:
-        return self.confidence < 0.85 and self.stage in ("fuzzy", "semantic")
+        return self.confidence < 0.85 and self.stage in ("fuzzy", "semantic") # return true if the token was resolved using fuzzy or semantic stage
 
-
+# stateful normalizer; construct once per app session and reuse
 class Normalizer:
-    """Stateful normalizer; construct once per app session and reuse."""
 
+    # initialize the Normalizer with the recipe vocabulary and load optional AI models (SBERT/NLTK)
     def __init__(
         self,
         vocabulary: list[str],
@@ -73,7 +74,7 @@ class Normalizer:
     @staticmethod
     def _load_lemmatizer():
         """Try to return a WordNetLemmatizer. If the corpus isn't installed
-        and can't be downloaded (e.g. restricted network), return None so the
+        and can't be downloaded (e.g. network failure), return None so the
         normalizer can fall back to a naive s-stripping heuristic. Never raise,
         never block on a network timeout."""
         import os
@@ -112,6 +113,7 @@ class Normalizer:
         return WordNetLemmatizer()
 
     @staticmethod
+    # loads the RapidFuzz library for high-speed typo correction (Levenshtein distance)
     def _load_fuzzy():
         try:
             from rapidfuzz import process, fuzz
@@ -120,6 +122,7 @@ class Normalizer:
             return None
 
     @staticmethod
+    # loads the SBERT neural network to perform mathematical semantic guesses
     def _load_semantic():
         from .embeddings import get_sbert_model
         return get_sbert_model()
@@ -171,11 +174,13 @@ class Normalizer:
 
         return NormalizedToken(raw, [], "unresolved", 0.0)
 
+    # convenience function to take a list of raw words and run `normalize` on all of them
     def normalize_batch(self, raw_inputs: list[str]) -> list[NormalizedToken]:
         return [self.normalize(r) for r in raw_inputs]
 
     # ---- stages ----------------------------------------------------------
     @staticmethod
+    # violently strips out casing, weird punctuation, and collapses spaces
     def _clean(text: str) -> str:
         if not text:
             return ""
@@ -184,6 +189,7 @@ class Normalizer:
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
+    # converts plural words to singular using linguistic models (chickens -> chicken)
     def _lemmatize(self, text: str) -> str:
         if self._lemmatizer is None:
             # Naive s-stripping fallback
@@ -191,6 +197,7 @@ class Normalizer:
         parts = [self._lemmatizer.lemmatize(p, pos="n") for p in text.split()]
         return " ".join(parts)
 
+    # attempts to fix spelling mistakes by finding the closest string in the vocabulary
     def _fuzzy_lookup(self, text: str) -> Optional[tuple[str, float, list[tuple[str, float]]]]:
         if self._fuzzy is None or not self.vocabulary:
             return None
@@ -204,6 +211,7 @@ class Normalizer:
         alts = [(c[0], c[1] / 100.0) for c in candidates]
         return top, top_score, alts
 
+    # last resort: translates word to a 384-dimension vector, and finds the vocabulary word with the highest Cosine Similarity!
     def _semantic_lookup(self, text: str) -> Optional[tuple[str, float, list[tuple[str, float]]]]:
         if self._semantic is None or self._vocab_embeddings is None:
             return None

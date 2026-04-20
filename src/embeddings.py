@@ -1,4 +1,5 @@
 """Shared SBERT loader — keep a single model instance across the app.
+so app doesnt need to load multiple copies
 
 Both the Normalizer (for semantic-fallback token resolution) and the
 Recommender (for dense recipe retrieval + semantic cluster labels) need the
@@ -8,10 +9,8 @@ startup time, so this module owns the one shared copy.
 from __future__ import annotations
 
 import os
-# HF mirror for restricted networks — set before importing any huggingface lib.
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
-
+# the default SBERT model used by the app
 DEFAULT_SBERT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -19,13 +18,11 @@ _MODEL = None
 _MODEL_NAME: str | None = None
 
 
+# returns the shared SBERT model (loading it lazily on first call)
+# tries the local cache first (`local_files_only=True`) so that the app starts
+# instantly without doing a network HEAD request against huggingface.co.
+# falls back to an online fetch only if the cache is genuinely empty.
 def get_sbert_model(model_name: str = DEFAULT_SBERT_MODEL):
-    """Return the shared SBERT model (loading it lazily on first call).
-
-    Tries the local cache first (`local_files_only=True`) so a restricted
-    network can't block startup with a HEAD timeout against huggingface.co.
-    Falls back to an online fetch only if the cache is genuinely empty.
-    """
     global _MODEL, _MODEL_NAME
     if _MODEL is not None and _MODEL_NAME == model_name:
         return _MODEL
@@ -50,11 +47,12 @@ def get_sbert_model(model_name: str = DEFAULT_SBERT_MODEL):
         return None
 
 
+# returns the embedding dimension for the given model
+# 384 for the default MiniLM; fallback to querying the model
 def encoded_dim(model_name: str = DEFAULT_SBERT_MODEL) -> int:
-    """384 for the default MiniLM; fallback to querying the model."""
     if model_name == DEFAULT_SBERT_MODEL:
-        return 384
+        return 384 # mathematically compressed down to 384 dimensions
     m = get_sbert_model(model_name)
     if m is None:
         return 0
-    return int(m.get_sentence_embedding_dimension())
+    return int(m.get_sentence_embedding_dimension()) # queries the loaded model for the dimension

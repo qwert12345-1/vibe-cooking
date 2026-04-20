@@ -9,8 +9,6 @@ Upgrade to the 1.5 B or 3 B variant by setting `RR_LLM_REPO`.
 from __future__ import annotations
 
 import os
-# HF mirror for restricted networks; setdefault respects an outer override.
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import re
 import threading
@@ -22,8 +20,8 @@ from typing import Optional
 # --------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------
-DEFAULT_MODEL = os.environ.get("RR_LLM_REPO", "Qwen/Qwen2.5-0.5B-Instruct")
-DEFAULT_MAX_TOKENS = int(os.environ.get("RR_LLM_MAX_TOKENS", "600"))
+DEFAULT_MODEL = os.environ.get("RR_LLM_REPO", "Qwen/Qwen2.5-0.5B-Instruct") # can change this to other models if wanted
+DEFAULT_MAX_TOKENS = int(os.environ.get("RR_LLM_MAX_TOKENS", "600")) # force the AI to keep recipes concise
 
 
 SYSTEM_PROMPT_EN = """\
@@ -97,16 +95,19 @@ class CreativeResult:
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
+# check if the ingredients contain any chinese characters
 def _has_chinese(s: str) -> bool:
     return bool(_CJK_RE.search(s))
 
 
+# pick language based on ingredients
 def _pick_language(ingredients: list[str], hint: str) -> str:
     if hint in ("en", "zh"):
         return hint
     return "zh" if _has_chinese(" ".join(ingredients)) else "en"
 
 
+# build user prompt (both english and chinese)
 def _build_user_prompt(
     ingredients: list[str],
     *,
@@ -160,8 +161,10 @@ _bundle_lock = threading.Lock()
 _load_error: Optional[str] = None
 
 
+# this helper looks inside the HuggingFace cache to see whether the model is already downloaded locally. 
+# if it is, then it returns the path to the local copy, otherwise it returns None
+# helps the program load from cache first instead of trying the network immediately
 def _cached_snapshot_dir(repo_id: str) -> str | None:
-    """Resolve a repo id to its newest local HF snapshot directory, if any."""
     hub_cache = os.environ.get("HF_HUB_CACHE")
     if not hub_cache:
         return None
@@ -185,12 +188,11 @@ def _cached_snapshot_dir(repo_id: str) -> str | None:
     return str(candidates[0])
 
 
+# load the tokenizer + CausalLM once (thread-safe and idempotent)
+# Prefers the cached copy (`local_files_only=True`) so that the application
+# can boot instantaneously fully offline without a network HEAD request,
+# as long as the model is already on disk under `./models/`.
 def _load_llm():
-    """Load the tokenizer + CausalLM once. Thread-safe and idempotent.
-
-    Prefers the cached copy (`local_files_only=True`) so a restricted-network
-    machine where huggingface.co times out still starts up as long as the
-    model is already on disk under ./models/ (populated by the bundler)."""
     global _bundle, _load_error
     if _bundle is not None:
         return _bundle
@@ -209,12 +211,12 @@ def _load_llm():
             return None
 
         def _load(local_only: bool):
-            # Qwen2.5 is natively supported by transformers (Qwen2ForCausalLM);
+            # Qwen2.5 is natively supported by transformers (Qwen2ForCausalLM)
             # we explicitly do NOT pass trust_remote_code=True. Enabling it
             # makes transformers do an extra hub lookup to check for custom
             # code updates, which network-times-out even when
             # local_files_only=True is set (the flag only skips weight
-            # downloads, not remote-code metadata checks).
+            # downloads, not remote-code metadata checks)
             source = DEFAULT_MODEL
             if local_only:
                 source = _cached_snapshot_dir(DEFAULT_MODEL) or DEFAULT_MODEL
@@ -260,6 +262,8 @@ def _load_llm():
     return _bundle
 
 
+# sanity check for the UI and verifies that transformers and torch are installed
+# and returns a user-friendly status message (but does not actually load the full model yet)
 def check_llm() -> tuple[bool, str]:
     """Non-blocking UI health check."""
     try:
@@ -273,9 +277,14 @@ def check_llm() -> tuple[bool, str]:
     return True, f"Ready · {DEFAULT_MODEL} (loads on first Create!)"
 
 
+
+# now we are at the step of BUILDING THE MODEL ;)
 # --------------------------------------------------------------------------
 # Generation
 # --------------------------------------------------------------------------
+# check that the user gave ingredients, loads the model, decides the language, 
+# builds the prompt, formats the conversation using the tokenizer's chat template,
+# runs text generation model, and returns the final recipe inside a CreativeResult
 def generate_recipe(
     ingredients: list[str],
     *,
