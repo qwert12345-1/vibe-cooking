@@ -55,10 +55,6 @@ correctness and design choices can be reviewed and defended independently.
 | **D — Seq2Seq Transformer Architecture** | `src/seq2seq/` | Custom PyTorch Transformer architecture; training pipelines; data preprocessing (`allrecipes.py`); decoding strategies for AI generation. |
 | **E — Data Pipeline & Visual Dashboard** | `src/data_loader.py`, `src/normalizer.py`, `app/demo_web.py` | Multi-stage typo/alias normalization pipeline; Plotly interactive 2-D clustering graph; interactive Gradio Dashboard interface. |
 
-Every member owns at least one concrete algorithmic module and one
-user-visible deliverable. Interfaces between `src/` modules are documented
-with type-annotated function signatures so members can integrate independently.
-
 ## 3. Repository Contents
 
 The finalized project repository is live at `https://github.com/qwert12345-1/vibe-cooking` and contains:
