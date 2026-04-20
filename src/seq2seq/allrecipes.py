@@ -22,7 +22,7 @@ _STEP_END_RE = re.compile(r"[.!?][\"')\]]?\s*$")
 
 # default dataset and limit for the AllRecipes corpus
 DEFAULT_DATASET = os.environ.get("RR_SEQ2SEQ_ALLRECIPES_DATASET", "corbt/all-recipes")
-DEFAULT_LIMIT = int(os.environ.get("RR_SEQ2SEQ_ALLRECIPES_LIMIT", "50000"))
+DEFAULT_LIMIT = int(os.environ.get("RR_SEQ2SEQ_ALLRECIPES_LIMIT", "50000")) # the first 50k rows of the dataset
 
 
 # a dataclass holding title, ingredients, directions, and raw text
