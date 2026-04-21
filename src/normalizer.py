@@ -228,10 +228,13 @@ class Normalizer:
         return self.vocabulary[top_idx], top_score, alts
 
 
+# helper function flattens a nested structure of NormalizedToken objects into a flat list of strings
 def flatten_resolved(tokens: list[NormalizedToken]) -> list[str]:
-    """Collect all resolved canonical names into a flat deduped list."""
+    # initialize an empty list to store the canonical forms and a set to keep track of seen canonical forms
     out: list[str] = []
     seen: set[str] = set()
+
+    # iterate through the tokens and add the canonical forms to the output list
     for t in tokens:
         for c in t.canonical:
             if c not in seen:

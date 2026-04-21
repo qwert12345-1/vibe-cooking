@@ -1,7 +1,6 @@
-"""Creative recipe generation via a local small LLM loaded with
-HuggingFace `transformers` (CPU, float32). No llama.cpp / GGUF / DLL
-dependencies — slower than llama.cpp (≈10-20 tok/s for a 0.5 B model on
-CPU) but far more robust across Windows / Linux / macOS / pip / conda.
+"""Creative recipe generation via a local small LLM natively loaded with
+HuggingFace `transformers` (CPU, float32). Clean, robust, and highly 
+cross-platform architecture across Windows / Linux / macOS / pip / conda.
 
 Default model: Qwen2.5-0.5B-Instruct (safetensors, ~1 GB).
 Upgrade to the 1.5 B or 3 B variant by setting `RR_LLM_REPO`.
@@ -90,7 +89,7 @@ class CreativeResult:
 
 
 # --------------------------------------------------------------------------
-# Language / prompt helpers (unchanged from the llama-cpp version)
+# Language / Prompt System Configurations
 # --------------------------------------------------------------------------
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
@@ -227,7 +226,7 @@ def _load_llm():
             mdl = AutoModelForCausalLM.from_pretrained(
                 source,
                 local_files_only=local_only,
-                torch_dtype=torch.float32,
+                dtype=torch.float32,
                 low_cpu_mem_usage=False,
             )
             mdl.eval()

@@ -3,7 +3,7 @@
 Interactive web app that takes a few ingredients and gives you:
 
 1. **A brand-new creative recipe** — either from a local LLM (Qwen2.5-0.5B via
-   llama.cpp) or from a hand-trained Seq2Seq + retrieval-augmented draft
+   Hugging Face Transformers) or from a hand-trained Seq2Seq + retrieval-augmented draft
    composer. Each generator also produces a preview image via a local Stable
    Diffusion (SDXS-512) pipeline.
 2. **Closest real recipes from the dataset** as a safety net — ranked by a
@@ -109,11 +109,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 # Everything else
 pip install -r requirements.txt
 
-# llama-cpp-python sometimes fails to build from source on Windows. If
-# `pip install -r requirements.txt` errored on it, install the prebuilt
-# CPU wheel and re-run requirements install:
-pip install llama-cpp-python \
-    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# Note: You no longer need external tools like `llama-cpp-python`.
+# The pipeline natively uses PyTorch and Hugging Face Transformers for robust
+# model inferencing entirely from Python!
 ```
 
 ### Optional — NLTK wordnet (for the lemmatizer stage in the normalizer)
@@ -232,26 +230,7 @@ You're on Gradio ≥ 6.0, which removed that event. Pin to 5.x:
 Two copies of OpenMP loaded. Already handled in `demo_web.py` via
 `KMP_DUPLICATE_LIB_OK=TRUE`; if you disabled that, re-enable it.
 
-**llama-cpp-python fails to build**
-Use the prebuilt wheel: `pip install llama-cpp-python
---extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
 
-**`Failed to load model from file: ...gguf` with `no backends are loaded`**
-You ended up with `llama-cpp-python` 0.3.x, whose ggml CPU backend is split
-into a separate shared library that neither conda-forge nor the PyPI sdist
-bundles. Downgrade to the 0.2.x line, where the backend is still statically
-linked in:
-```
-conda remove -y llama-cpp-python
-conda install -c conda-forge "llama-cpp-python<0.3"
-```
-
-If conda resolution fails, pip instead (force binary-only so it doesn't fall
-back to a source build that needs a C++ compiler):
-```
-pip uninstall -y llama-cpp-python
-pip install --only-binary=:all: "llama-cpp-python==0.2.90" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-```
 
 **Model download is slow or fails**
 The project ships with models pre-cached. If for some reason they're missing

@@ -2,7 +2,7 @@
 #   conda env create -f environment.yml
 #   conda activate recipe_recommender
 #
-# We pull heavier packages (torch, pytorch-cpu, llama-cpp-python) from
+# We pull heavier packages (like torch) from
 # conda-forge where their binary wheels are reliable on Windows. Everything
 # else comes from pip to match requirements.txt pins.
 name: creative_recipe

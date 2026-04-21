@@ -85,8 +85,10 @@ def build_cluster_figure(
         idx = np.where(labels == cid)[0]
         if idx.size > sample_per_cluster:
             idx = rng.choice(idx, size=sample_per_cluster, replace=False)
+        cluster_desc = engine.cluster_label_guess(cid)
         hover = [
             f"<b>{engine.recipes[int(i)].name[:60]}</b><br>"
+            f"<i>cluster {cid}: {cluster_desc}</i><br>"
             f"cuisine: {', '.join(engine.recipes[int(i)].cuisine) or '—'}<br>"
             f"{int(engine.recipes[int(i)].calories)} kcal"
             for i in idx
@@ -190,16 +192,32 @@ def build_cluster_figure(
             )
 
     fig.update_layout(
-        title="Recipe Universe (hand-implemented K-Means on TF-IDF projection)",
+        title=dict(
+            text="Recipe Universe",
+            x=0.5,
+            xanchor="center",
+            y=0.97,
+            yanchor="top",
+            pad=dict(t=20),
+        ),
         xaxis_title="latent-1",
         yaxis_title="latent-2",
-        height=540,
-        legend=dict(font=dict(size=10)),
-        margin=dict(l=10, r=10, t=40, b=10),
+        height=720,
+        legend=dict(
+            font=dict(size=10),
+            x=0.58,
+            xanchor="left",
+            y=0.82,
+            yanchor="top",
+            bgcolor="rgba(255,255,255,0.72)",
+            bordercolor="rgba(148,163,184,0.30)",
+            borderwidth=1,
+        ),
+        margin=dict(l=32, r=32, t=56, b=24),
         # Lock axis aspect ratio to 1:1 so the "matching region" circle
         # actually looks like a circle (not a horizontally squashed ellipse
         # just because the plot container is wider than it is tall).
-        xaxis=dict(constrain="domain"),
+        xaxis=dict(domain=[0.04, 0.54], constrain="domain"),
         yaxis=dict(scaleanchor="x", scaleratio=1, constrain="domain"),
     )
     return fig

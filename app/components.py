@@ -58,8 +58,8 @@ def render_low_confidence_prompt(tokens: list[NormalizedToken]) -> str:
             f"Alternatives: {alts}</li>"
         )
     return (
-        "<div style='background:#fff3cd;padding:10px;border-radius:6px;"
-        "border:1px solid #ffe69c;'>"
+        "<div style='background:rgba(234, 179, 8, 0.1);padding:10px;border-radius:6px;"
+        "border:1px solid rgba(234, 179, 8, 0.3);color:#fde047;'>"
         "<b>Please confirm these low-confidence matches:</b>"
         f"<ul style='margin:6px 0 0 20px;'>{''.join(rows)}</ul></div>"
     )
@@ -79,10 +79,10 @@ def _chip(text: str, bg: str, fg: str = "#ffffff",
 def _tag_chip(label: str, kind: str) -> str:
     """Cuisine / diet / meal type tag. Different colors per kind."""
     palette = {
-        "cuisine": ("#dbe9ff", "#1d3557", "#b4cff0"),
-        "diet":    ("#e3f5e1", "#2a6f36", "#bfe3ba"),
-        "meal":    ("#fff0d8", "#8a5a00", "#f0d8a8"),
-        "meta":    ("#eaeaea", "#333",    "#cfcfcf"),
+        "cuisine": ("rgba(59, 130, 246, 0.2)", "#93c5fd", "rgba(59, 130, 246, 0.4)"),
+        "diet":    ("rgba(34, 197, 94, 0.2)", "#86efac", "rgba(34, 197, 94, 0.4)"),
+        "meal":    ("rgba(245, 158, 11, 0.2)", "#fcd34d", "rgba(245, 158, 11, 0.4)"),
+        "meta":    ("rgba(148, 163, 184, 0.15)", "#cbd5e1", "rgba(148, 163, 184, 0.3)"),
     }
     bg, fg, border = palette.get(kind, palette["meta"])
     return _chip(label, bg=bg, fg=fg, border=border)
@@ -109,21 +109,21 @@ def render_result_cards(ranked: list[RankedRecipe]) -> str:
         # Square image on top, fixed 4:3 aspect with a subtle placeholder fallback.
         img_html = (
             f'<div style="position:relative;width:100%;aspect-ratio:4/3;'
-            f'background:#eef1f4;border-radius:10px 10px 0 0;overflow:hidden;">'
+            f'background:rgba(15,23,42,0.8);border-radius:10px 10px 0 0;overflow:hidden;">'
             f'<img src="{escape(rec.image)}" '
             f'style="width:100%;height:100%;object-fit:cover;display:block;" />'
-            f'<div style="position:absolute;top:8px;left:8px;background:rgba(29,53,87,0.92);'
+            f'<div style="position:absolute;top:8px;left:8px;background:rgba(15,23,42,0.8);'
             f'color:white;font-weight:700;font-size:12px;padding:3px 9px;border-radius:12px;'
-            f'letter-spacing:0.3px;">#{i+1}</div>'
-            f'<div style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.96);'
-            f'color:#1a1a1a;font-weight:700;font-size:12px;padding:3px 9px;border-radius:12px;'
-            f'box-shadow:0 1px 3px rgba(0,0,0,0.15);">score {r.score:.3f}</div>'
+            f'letter-spacing:0.3px;backdrop-filter:blur(4px);">#{i+1}</div>'
+            f'<div style="position:absolute;top:8px;right:8px;background:rgba(30,41,59,0.8);'
+            f'color:#f8fafc;font-weight:700;font-size:12px;padding:3px 9px;border-radius:12px;'
+            f'box-shadow:0 1px 3px rgba(0,0,0,0.3);backdrop-filter:blur(4px);">score {r.score:.3f}</div>'
             f'</div>'
             if rec.image else
             f'<div style="position:relative;width:100%;aspect-ratio:4/3;'
-            f'background:linear-gradient(135deg,#e9eef4 0%,#d5dde7 100%);'
+            f'background:linear-gradient(135deg,rgba(30,41,59,0.8) 0%,rgba(15,23,42,0.8) 100%);'
             f'border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:center;'
-            f'color:#7b8794;font-size:13px;">no image</div>'
+            f'color:#94a3b8;font-size:13px;">no image</div>'
         )
 
         # Tag chips (cuisine / diet / meal / meta)
@@ -149,17 +149,17 @@ def render_result_cards(ranked: list[RankedRecipe]) -> str:
         for ing in r.missing:
             ing_chips.append(_chip(ing, bg="#ff8c42", symbol="✗"))
         for ing in r.missing_pantry:
-            ing_chips.append(_chip(ing, bg="#e9ecef", fg="#555", border="#ced4da"))
+            ing_chips.append(_chip(ing, bg="rgba(148,163,184,0.1)", fg="#94a3b8", border="rgba(148,163,184,0.3)"))
 
         unused_html = ""
         if r.unused_from_user:
             unused_chips = "".join(
-                _chip(ing, bg="#dbe9ff", fg="#1d3557", border="#9cbde0")
+                _chip(ing, bg="rgba(99,102,241,0.1)", fg="#818cf8", border="rgba(99,102,241,0.3)")
                 for ing in r.unused_from_user
             )
             unused_html = (
-                '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #dbe0e6;">'
-                '<div style="font-size:11px;color:#1d3557;font-weight:700;'
+                '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.1);">'
+                '<div style="font-size:11px;color:#818cf8;font-weight:700;'
                 'text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">'
                 'Not used by this recipe</div>'
                 f'{unused_chips}</div>'
@@ -174,27 +174,27 @@ def render_result_cards(ranked: list[RankedRecipe]) -> str:
 
         cards.append(
             f"""
-<div style="display:flex;flex-direction:column;background:#ffffff;
-    border:1px solid #d0d7de;border-radius:12px;overflow:hidden;
-    box-shadow:0 1px 3px rgba(15,23,42,0.06);color:#1a1a1a;height:100%;">
+<div style="display:flex;flex-direction:column;background:rgba(30,41,59,0.4);
+    border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;
+    box-shadow:0 8px 32px rgba(0,0,0,0.2);color:#f8fafc;height:100%;backdrop-filter:blur(10px);">
   {img_html}
   <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;">
 
     <a href="{url}" target="_blank"
-       style="color:#1a1a1a;text-decoration:none;font-size:16px;font-weight:700;
+       style="color:#f8fafc;text-decoration:none;font-size:16px;font-weight:700;
        line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-       overflow:hidden;">{name}</a>
+       overflow:hidden;transition:color 0.2s;" onmouseover="this.style.color='#818cf8'" onmouseout="this.style.color='#f8fafc'">{name}</a>
 
     <div>{tags_html}</div>
 
     <div>
-      <div style="font-size:11px;color:#1a1a1a;font-weight:700;text-transform:uppercase;
+      <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;
            letter-spacing:0.4px;margin-bottom:4px;">
         Ingredients
-        <span style="color:#666;font-weight:500;margin-left:6px;text-transform:none;letter-spacing:0;">
-          <span style="color:#2a9d8f;">✓ have</span> ·
-          <span style="color:#ff8c42;">✗ missing</span> ·
-          <span style="color:#555;">pantry</span>
+        <span style="color:#94a3b8;font-weight:500;margin-left:6px;text-transform:none;letter-spacing:0;">
+          <span style="color:#34d399;">✓ have</span> ·
+          <span style="color:#fbbf24;">✗ missing</span> ·
+          <span style="color:#64748b;">pantry</span>
         </span>
       </div>
       <div>{"".join(ing_chips)}</div>
@@ -202,11 +202,11 @@ def render_result_cards(ranked: list[RankedRecipe]) -> str:
 
     {unused_html}
 
-    <div style="margin-top:auto;padding-top:10px;border-top:1px solid #eef1f4;
-         font-size:12px;color:#333;display:flex;flex-wrap:wrap;gap:8px;
+    <div style="margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);
+         font-size:12px;display:flex;flex-wrap:wrap;gap:8px;
          align-items:baseline;justify-content:space-between;">
       {status_badge}
-      <span style="color:#6c7684;font-size:11px;">
+      <span style="color:#64748b;font-size:11px;">
         cos {r.cosine:.2f} · jac {r.jaccard:.2f} ·
         cov {r.coverage:.2f} · match {r.match_ratio:.2f}
       </span>
@@ -247,9 +247,9 @@ def render_single_recipe_card(
     else:
         img_html = (
             '<div style="width:100%;height:100%;'
-            'background:linear-gradient(135deg,#e9eef4 0%,#d5dde7 100%);'
+            'background:linear-gradient(135deg,rgba(30,41,59,0.8) 0%,rgba(15,23,42,0.8) 100%);'
             'display:flex;align-items:center;justify-content:center;'
-            'color:#7b8794;font-size:14px;">no image</div>'
+            'color:#94a3b8;font-size:14px;">no image</div>'
         )
 
     # Right: tag chips
@@ -280,7 +280,7 @@ def render_single_recipe_card(
         seen.add(food)
         text = str(item.get("text") or food).strip()
         ing_lines.append(
-            f'<li style="margin:2px 0;color:#1a1a1a;">{escape(text)}</li>'
+            f'<li style="margin:2px 0;color:#cbd5e1;">{escape(text)}</li>'
         )
     ingredients_html = (
         '<ul style="margin:6px 0 0 0;padding-left:22px;font-size:13px;line-height:1.55;">'
@@ -292,7 +292,7 @@ def render_single_recipe_card(
     # both the <b> and plain-text segments so Gradio's theme CSS can't fade
     # them out in dark mode.
     meta_parts: list[str] = []
-    _BOLD = 'style="color:#1a1a1a;font-weight:700;"'
+    _BOLD = 'style="color:#f8fafc;font-weight:700;"'
     if recipe.calories:
         meta_parts.append(f"<b {_BOLD}>{int(recipe.calories)}</b> kcal")
     if recipe.servings and recipe.servings > 0:
@@ -307,33 +307,34 @@ def render_single_recipe_card(
         link_html = (
             f'<a href="{escape(url_val)}" target="_blank" '
             'style="display:inline-block;margin-top:14px;padding:8px 14px;'
-            'background:#1d3557;color:#ffffff;border-radius:8px;'
-            'text-decoration:none;font-size:13px;font-weight:600;">'
-            "View full recipe with steps →</a>"
+            'background:linear-gradient(90deg, #4f46e5 0%, #d946ef 100%);color:#ffffff;border-radius:8px;'
+            'text-decoration:none;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);'
+            'transition:transform 0.2s;" onmouseover="this.style.transform=\\\'scale(1.02)\\\'" '
+            'onmouseout="this.style.transform=\\\'scale(1)\\\'">View full recipe with steps →</a>'
         )
     else:
         link_html = (
-            '<div style="margin-top:14px;font-size:12px;color:#6c7684;">'
+            '<div style="margin-top:14px;font-size:12px;color:#64748b;">'
             "<em>No source URL available for this recipe.</em></div>"
         )
 
     return (
-        '<div style="display:flex;gap:20px;background:#ffffff;border:1px solid #d0d7de;'
-        'border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(15,23,42,0.08);'
-        'color:#1a1a1a;width:100%;">'
+        '<div style="display:flex;gap:20px;background:rgba(30,41,59,0.4);border:1px solid rgba(255,255,255,0.08);'
+        'border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.25);'
+        'color:#f8fafc;width:100%;backdrop-filter:blur(10px);">'
         # Left: image — fixed width, stretches full card height
-        '<div style="flex:0 0 320px;min-height:320px;background:#eef1f4;">'
+        '<div style="flex:0 0 320px;min-height:320px;background:rgba(15,23,42,0.8);">'
         f'{img_html}'
         '</div>'
         # Right: textual content, fills remaining space
-        '<div style="flex:1;padding:18px 20px;min-width:0;color:#1a1a1a;">'
-        f'<div style="font-size:20px;font-weight:700;line-height:1.3;color:#1a1a1a;">'
+        '<div style="flex:1;padding:24px;min-width:0;color:#f8fafc;">'
+        f'<div style="font-size:24px;font-weight:700;line-height:1.3;color:#f8fafc;">'
         f'{name}</div>'
-        f'<div style="margin-top:8px;">{tags_html}</div>'
-        + (f'<div style="margin-top:10px;font-size:13px;color:#1a1a1a;">{meta_html}</div>'
+        f'<div style="margin-top:12px;">{tags_html}</div>'
+        + (f'<div style="margin-top:14px;font-size:14px;color:#cbd5e1;">{meta_html}</div>'
            if meta_html else '')
-        + '<div style="margin-top:14px;font-size:11px;color:#1a1a1a;font-weight:700;'
-        'text-transform:uppercase;letter-spacing:0.4px;">Ingredients (with quantities)</div>'
+        + '<div style="margin-top:18px;font-size:12px;color:#94a3b8;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:0.5px;">Ingredients (with quantities)</div>'
         f'{ingredients_html}'
         f'{link_html}'
         '</div>'
