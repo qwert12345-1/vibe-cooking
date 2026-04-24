@@ -192,7 +192,7 @@ def _split_ingredients(text: str) -> list[str]:
 _SPINNER_HTML = """\
 <div style="display:inline-flex;align-items:center;gap:12px;padding:12px 18px;
     background:#1d3557;border:1px solid #0f203a;border-radius:10px;
-    font-size:15px;color:#ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.12);">
+    font-size:19px;color:#ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.12);">
   <span style="width:20px;height:20px;border-radius:50%;
        border:3px solid rgba(255,255,255,0.35);border-top-color:#ffffff;
        animation:rr-spin 0.9s linear infinite;display:inline-block;"></span>
@@ -837,6 +837,13 @@ _PLOT_CLICK_SCRIPT = """
 # CSS to hide the JS-click-relay Textbox off-screen without removing it from
 # the DOM (display:none would also kick it out of Gradio's interactive state).
 _APP_CSS = """
+.gradio-container {
+    max-width: 860px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    font-size: 19px !important;
+}
+
 .rr-hidden, .rr-hidden * {
     position: absolute !important;
     left: -9999px !important;
@@ -883,6 +890,17 @@ _APP_CSS = """
 .rr-collapse-toggle {
     margin-top: 10px !important;
 }
+.rr-collapse-toggle > .label-wrap button,
+.rr-collapse-toggle > .block > .label-wrap button {
+    font-size: 20px !important;
+}
+.rr-picky-accordion > .label-wrap button,
+.rr-picky-accordion > .block > .label-wrap button {
+    font-size: 19px !important;
+}
+.rr-create-btn button {
+    font-size: 22px !important;
+}
 /* ---- Floating toast notifications ---- */
 .rr-toast {
     position: fixed;
@@ -892,7 +910,7 @@ _APP_CSS = """
     max-width: 380px;
     padding: 14px 20px;
     border-radius: 14px;
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 500;
     line-height: 1.55;
     opacity: 0;
@@ -925,8 +943,11 @@ _APP_CSS = """
 .rr-ingredients-box .gradio-textbox .gr-block-label {
     color: #fbbf24 !important;
     font-weight: 700 !important;
-    font-size: 17px !important;
+    font-size: 21px !important;
     text-shadow: 0 1px 2px rgba(15, 23, 42, 0.45);
+}
+.rr-ingredients-box textarea {
+    font-size: 22px !important;
 }
 .rr-llm-header,
 .rr-llm-header p,
@@ -979,7 +1000,7 @@ _THEME = gr.themes.Base(
 _blocks_kwargs = {
     "title": "🧑🍳 Let's Vibe Cook!",
     "head": _PLOT_CLICK_SCRIPT,
-    "css": _APP_CSS + "\n#rr-intro-md, #rr-intro-md > * { border-radius: 0 !important; }",
+    "css": _APP_CSS + "\n#rr-intro-md, #rr-intro-md > * { border-radius: 0 !important; }\n#rr-intro-md { text-align: center !important; }\n#rr-intro-md h1 { font-size: 3rem !important; }",
 }
 
 try:
@@ -1012,30 +1033,21 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         ingredient_tb = gr.Textbox(
             label="Ingredients (comma- or newline-separated)",
             placeholder="chicken, onion, tomatoes, garlic, miso",
-            lines=2,
+            lines=5,
             elem_classes=["rr-ingredients-box"],
         )
-        gr.HTML(
-            "<div style='color:#94a3b8;font-size:13px;font-style:italic;margin:4px 0 0 2px;'>"
-            "💡 the weirder the combo, the more creative the output — try miso + banana + tahini</div>"
-        )
-        gr.HTML(
-            "<div style='margin:16px 0 8px 0;color:#8ea1b8;font-style:italic;'>"
-            "Need a starting point? You can pick one below: "
-            "</div>"
-        )
         with gr.Row(equal_height=True):
-            ex_cozy_btn = gr.Button("🌿 Cozy classic")
-            ex_bold_btn = gr.Button("🔥 Bold mashup")
-            ex_dark_btn = gr.Button("💀 Dark cuisine")
-        gr.HTML("<div style='margin-bottom:14px;'></div>")
+            ex_cozy_btn = gr.Button("🌿 Cozy classic", size="lg")
+            ex_bold_btn = gr.Button("🔥 Bold mashup", size="lg")
+            ex_dark_btn = gr.Button("💀 Dark cuisine", size="lg")
+        gr.HTML("<div style='margin-bottom:4px;'></div>")
         ex_cozy_btn.click(lambda: _EXAMPLE_COZY, outputs=ingredient_tb)
         ex_bold_btn.click(lambda: _EXAMPLE_BOLD, outputs=ingredient_tb)
         ex_dark_btn.click(lambda: _EXAMPLE_DARK, outputs=ingredient_tb)
 
-        with gr.Accordion("Picky? (or not, whatever)", open=False):
+        with gr.Accordion("Picky? (or not, whatever)", open=False, elem_classes=["rr-picky-accordion"]):
             gr.HTML(
-                "<div style='color:#94a3b8;font-size:12px;font-style:italic;margin:0 0 14px 0;'>"
+                "<div style='color:#94a3b8;font-size:17px;font-style:italic;margin:0 0 14px 0;'>"
                 "These filters shape the real recipe suggestions below — the AI chefs ignore them and freelance anyway.</div>"
             )
             with gr.Row():
@@ -1076,12 +1088,13 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         )
 
         gr.HTML(
-            "<div style='color:#94a3b8;font-size:12px;font-style:italic;margin:4px 0 8px 2px;'>"
+            "<div style='color:#94a3b8;font-size:17px;font-style:italic;margin:4px 0 8px 2px;'>"
             "🤖 Creative Chef freestyles off-script. 🧠 Evidence-Based Chef stays grounded in the dataset. "
             "Running both and comparing is half the fun.</div>"
         )
         create_btn = gr.Button(
             "🍳 Create!", variant="primary", size="lg",
+            elem_classes=["rr-create-btn"],
         )
 
     # Chips / confirmations shown between the input card and the hero section,
