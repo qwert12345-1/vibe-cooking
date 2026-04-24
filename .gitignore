@@ -10,7 +10,6 @@ cache/
 .ipynb_checkpoints/
 .DS_Store
 
-# Ignore HuggingFace caches - the AI weights are too large for GitHub (multi-gigabytes)
-# and their aggressive internal symlink structure crashes Git on macOS/Windows.
-# Your professor will just run the bundle script or let the models download on first boot.
-models/hub/
+# Models and datasets download automatically from HuggingFace on first run.
+# None of this belongs in git.
+models/
