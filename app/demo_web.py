@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import socket
 
 # ---- Project-local cache redirection ---------------------------------------
 # Everything the app downloads at runtime (SBERT, Qwen2.5 GGUF, SDXS, NLTK
@@ -69,6 +70,65 @@ from src.seq2seq_backend import generate_seq2seq_recipe  # noqa: E402
 from src.normalizer import flatten_resolved  # noqa: E402
 from src.recommender import Filters, RecipeRecommender  # noqa: E402
 from src.visualize_dish import generate_dish_image  # noqa: E402
+
+
+def _candidate_local_addresses() -> list[str]:
+    addrs: list[str] = []
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, family=socket.AF_INET)
+    except Exception:
+        infos = []
+    for info in infos:
+        ip = info[4][0]
+        if ip.startswith("127.") or ip == "0.0.0.0" or ip in addrs:
+            continue
+        addrs.append(ip)
+    return addrs
+
+
+def _hf_auth_sources() -> list[str]:
+    sources: list[str] = []
+    for env_name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACEHUB_API_TOKEN"):
+        if os.environ.get(env_name):
+            sources.append(f"env:{env_name}")
+
+    token_candidates = [
+        Path(os.environ.get("HF_HOME", "")) / "token" if os.environ.get("HF_HOME") else None,
+        Path(os.environ.get("HF_HOME", "")) / "stored_tokens" if os.environ.get("HF_HOME") else None,
+        Path.home() / ".cache" / "huggingface" / "token",
+        Path.home() / ".cache" / "huggingface" / "stored_tokens",
+        Path.home() / ".config" / "huggingface" / "token",
+        Path.home() / ".config" / "huggingface" / "stored_tokens",
+        Path.home() / ".huggingface" / "token",
+    ]
+    for candidate in token_candidates:
+        if candidate and candidate.exists():
+            sources.append(f"file:{candidate}")
+    return sources
+
+
+def _print_runtime_diagnostics(server_name: str, server_port: int) -> None:
+    hostname = socket.gethostname()
+    print("[startup] Machine diagnostics:", flush=True)
+    print(f"[startup]   hostname={hostname}", flush=True)
+    print(f"[startup]   bind={server_name}:{server_port}", flush=True)
+    print(f"[startup]   localhost=http://127.0.0.1:{server_port}", flush=True)
+
+    lan_addrs = _candidate_local_addresses()
+    if server_name in ("127.0.0.1", "localhost"):
+        print("[startup]   network_access=localhost-only", flush=True)
+    else:
+        print("[startup]   network_access=LAN-visible", flush=True)
+        for addr in lan_addrs:
+            print(f"[startup]   lan_url=http://{addr}:{server_port}", flush=True)
+
+    auth_sources = _hf_auth_sources()
+    if auth_sources:
+        print("[startup]   hf_auth_sources=", flush=True)
+        for source in auth_sources:
+            print(f"[startup]     - {source}", flush=True)
+    else:
+        print("[startup]   hf_auth_sources=none detected", flush=True)
 
 
 # --------------------------------------------------------------------
@@ -1138,9 +1198,12 @@ with gr.Blocks(**_blocks_kwargs) as demo:
 
 
 if __name__ == "__main__":
+    _server_name = os.environ.get("RR_SERVER_NAME", "127.0.0.1")
+    _server_port = int(os.environ.get("RR_PORT", "7860"))
+    _print_runtime_diagnostics(_server_name, _server_port)
     _launch_kwargs: dict = {
-        "server_name": "0.0.0.0",
-        "server_port": int(os.environ.get("RR_PORT", "7860")),
+        "server_name": _server_name,
+        "server_port": _server_port,
         "inbrowser": True,
     }
     

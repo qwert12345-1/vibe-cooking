@@ -138,6 +138,7 @@ Environment variables (all optional):
 | variable | default | effect |
 | --- | --- | --- |
 | `RR_PORT` | `7860` | Gradio server port |
+| `RR_SERVER_NAME` | `127.0.0.1` | Bind address. Use `0.0.0.0` only if you intentionally want LAN access. |
 | `RR_NO_LLM_PRELOAD` | `0` | `1` = skip LLM preload at startup (lazy-load on first click) |
 | `RR_NO_Seq2Seq_PRELOAD` | `0` | `1` = same, for Seq2Seq |
 | `RR_NO_IMAGE_PRELOAD` | `0` | `1` = same, for SDXS image pipeline |
