@@ -1,1 +1,7 @@
-../../../blobs/d1514c3162bbe87b343f565fadc62e6c06f04f03
+{
+  "word_embedding_dimension": 384,
+  "pooling_mode_cls_token": false,
+  "pooling_mode_mean_tokens": true,
+  "pooling_mode_max_tokens": false,
+  "pooling_mode_mean_sqrt_len_tokens": false
+}

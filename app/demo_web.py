@@ -923,8 +923,9 @@ _APP_CSS = """
 .rr-ingredients-box .gr-block-label,
 .rr-ingredients-box .gradio-textbox label,
 .rr-ingredients-box .gradio-textbox .gr-block-label {
-    color: #f8fafc !important;
+    color: #fbbf24 !important;
     font-weight: 700 !important;
+    font-size: 17px !important;
     text-shadow: 0 1px 2px rgba(15, 23, 42, 0.45);
 }
 .rr-llm-header,
@@ -959,12 +960,12 @@ _THEME = gr.themes.Base(
     color_accent_soft="#4f46e5",
     block_background_fill="rgba(30, 41, 59, 0.4)",
     block_border_width="1px",
-    block_border_color="rgba(148, 163, 184, 0.15)",
+    block_border_color="rgba(251, 191, 36, 0.10)",
     block_radius="16px",
     block_shadow="0 8px 32px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
     input_background_fill="rgba(15, 23, 42, 0.8)",
     input_border_color="rgba(148, 163, 184, 0.2)",
-    input_border_color_focus="#8b5cf6",
+    input_border_color_focus="#f59e0b",
     input_radius="12px",
     button_primary_background_fill="linear-gradient(90deg, #4f46e5 0%, #d946ef 100%)",
     button_primary_background_fill_hover="linear-gradient(90deg, #4338ca 0%, #c026d3 100%)",
@@ -1015,6 +1016,10 @@ with gr.Blocks(**_blocks_kwargs) as demo:
             elem_classes=["rr-ingredients-box"],
         )
         gr.HTML(
+            "<div style='color:#94a3b8;font-size:13px;font-style:italic;margin:4px 0 0 2px;'>"
+            "💡 the weirder the combo, the more creative the output — try miso + banana + tahini</div>"
+        )
+        gr.HTML(
             "<div style='margin:16px 0 8px 0;color:#8ea1b8;font-style:italic;'>"
             "Need a starting point? You can pick one below: "
             "</div>"
@@ -1029,6 +1034,10 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         ex_dark_btn.click(lambda: _EXAMPLE_DARK, outputs=ingredient_tb)
 
         with gr.Accordion("Picky? (or not, whatever)", open=False):
+            gr.HTML(
+                "<div style='color:#94a3b8;font-size:12px;font-style:italic;margin:0 0 14px 0;'>"
+                "These filters shape the real recipe suggestions below — the AI chefs ignore them and freelance anyway.</div>"
+            )
             with gr.Row():
                 with gr.Column(scale=1):
                     cuisine_cb = gr.CheckboxGroup(choices=CUISINES, label="Cuisine")
@@ -1066,6 +1075,11 @@ with gr.Blocks(**_blocks_kwargs) as demo:
             label="Choose Your Theoretical Chef(s) (proof of edibility not included)",
         )
 
+        gr.HTML(
+            "<div style='color:#94a3b8;font-size:12px;font-style:italic;margin:4px 0 8px 2px;'>"
+            "🤖 Creative Chef freestyles off-script. 🧠 Evidence-Based Chef stays grounded in the dataset. "
+            "Running both and comparing is half the fun.</div>"
+        )
         create_btn = gr.Button(
             "🍳 Create!", variant="primary", size="lg",
         )
@@ -1132,7 +1146,8 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         "## 🗺️ Principal Craving Analysis\n"
         "We performed Principal Craving Analysis™ on recipe embeddings, "
         "clustered them in flavor space, and gently flattened the universe into 2D.\n"
-        "Click any point to find your nearest culinary soulmate 💞."
+        "Click any dot to read that recipe — your search lights up the nearest flavour neighbourhood.\n"
+        "Hit **Create!** first to see your ingredients plotted on the map 💞."
     )
     cluster_plot = gr.Plot(label="K-Means clusters")
     # `gr.Plot` (used for Plotly figures) does not expose a .select / .click
@@ -1159,7 +1174,8 @@ with gr.Blocks(**_blocks_kwargs) as demo:
     plot_mapping_state = gr.State({})
     gr.Markdown("### Selected recipe")
     clicked_recipe_html = gr.HTML(
-        "<em>Click a point on the map above to see the recipe it represents.</em>"
+        "<em>Hit <strong>Create!</strong> first — the top result loads here automatically. "
+        "Then click any dot on the map to explore the full 39k recipe universe.</em>"
     )
 
     # Initial plot so the component isn't empty on load.

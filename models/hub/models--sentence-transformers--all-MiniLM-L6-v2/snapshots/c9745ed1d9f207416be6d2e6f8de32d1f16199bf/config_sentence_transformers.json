@@ -1,1 +1,7 @@
-../../blobs/fd1b291129c607e5d49799f87cb219b27f98acdf
+{
+  "__version__": {
+    "sentence_transformers": "2.0.0",
+    "transformers": "4.6.1",
+    "pytorch": "1.8.1"
+  }
+}
