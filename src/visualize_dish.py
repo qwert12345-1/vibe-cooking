@@ -21,13 +21,16 @@ Upgrade recipe:
 """
 from __future__ import annotations
 
+import json
 import os
+import time
 
 import base64
 import re
 import threading
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Optional
 
 
@@ -57,6 +60,116 @@ class ImageResult:
 _pipe = None
 _pipe_lock = threading.Lock()
 _pipe_error: Optional[str] = None
+
+
+def _looks_like_invalid_json_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return (
+        "not a valid json file" in msg
+        or "jsondecodeerror" in msg
+        or "expecting value" in msg
+    )
+
+
+def _preferred_snapshot_dir(repo_id: str) -> str | None:
+    """Return the snapshot selected by refs/main or newest mtime, no validation."""
+    hub_cache = os.environ.get("HF_HUB_CACHE")
+    if not hub_cache:
+        return None
+
+    repo_dir = Path(hub_cache) / f"models--{repo_id.replace('/', '--')}"
+    refs_main = repo_dir / "refs" / "main"
+    if refs_main.exists():
+        revision = refs_main.read_text(encoding="utf-8").strip()
+        snapshot_dir = repo_dir / "snapshots" / revision
+        if snapshot_dir.is_dir():
+            return str(snapshot_dir)
+
+    snapshots_dir = repo_dir / "snapshots"
+    if not snapshots_dir.is_dir():
+        return None
+
+    candidates = [p for p in snapshots_dir.iterdir() if p.is_dir()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(candidates[0])
+
+
+def _materialize_snapshot_pointers(snapshot_dir: str) -> int:
+    """Replace '../../blobs/<sha>' pointer files with blob contents in place."""
+    root = Path(snapshot_dir)
+    if not root.is_dir():
+        return 0
+
+    repaired = 0
+    for file_path in root.rglob("*"):
+        if not file_path.is_file():
+            continue
+        try:
+            # Pointer files are tiny one-line UTF-8 text files.
+            if file_path.stat().st_size > 256:
+                continue
+            raw = file_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            continue
+
+        if not raw.startswith("../../blobs/"):
+            continue
+
+        blob_rel = raw.split("../../blobs/", 1)[1].strip()
+        if not blob_rel:
+            continue
+
+        blob_path = (root / "../../blobs" / blob_rel).resolve()
+        if not blob_path.is_file():
+            continue
+
+        try:
+            file_path.write_bytes(blob_path.read_bytes())
+            repaired += 1
+        except Exception:
+            continue
+
+    return repaired
+
+
+def _snapshot_has_valid_model_index(snapshot_dir: Path) -> bool:
+    """Best-effort check that model_index.json is real JSON, not a blob pointer."""
+    model_index = snapshot_dir / "model_index.json"
+    if not model_index.is_file():
+        return False
+    try:
+        raw = model_index.read_text(encoding="utf-8").strip()
+    except Exception:
+        return False
+    if not raw or raw.startswith("../../blobs/"):
+        return False
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return False
+    return isinstance(parsed, dict)
+
+
+def _quarantine_snapshot_dir(snapshot_dir: str) -> None:
+    """Rename a broken snapshot out of the way so HF can redownload clean files."""
+    p = Path(snapshot_dir)
+    if not p.exists():
+        return
+    suffix = time.strftime("%Y%m%d-%H%M%S")
+    target = p.with_name(f"{p.name}.broken-{suffix}")
+    try:
+        p.rename(target)
+        print(
+            f"[image] Quarantined corrupted snapshot: {p} -> {target}",
+            flush=True,
+        )
+    except Exception as e:
+        print(
+            f"[image] Could not quarantine corrupted snapshot {p!r}: {e}",
+            flush=True,
+        )
 
 
 def _load_pipeline():
@@ -96,6 +209,15 @@ def _load_pipeline():
                 f"(first run downloads {approx_mb})...",
                 flush=True,
             )
+            preferred_snapshot = _preferred_snapshot_dir(DEFAULT_REPO)
+            if preferred_snapshot:
+                repaired = _materialize_snapshot_pointers(preferred_snapshot)
+                if repaired:
+                    print(
+                        f"[image]   repaired {repaired} pointer files in snapshot",
+                        flush=True,
+                    )
+
             # Prefer the cached copy (local_files_only=True) so we skip the
             # "is my cache still up to date?" HEAD request against HF. By bypassing
             # the network, the image generator module will boot instantaneously.
@@ -113,7 +235,10 @@ def _load_pipeline():
                 pipe = StableDiffusionPipeline.from_pretrained(
                     DEFAULT_REPO, local_files_only=True, **_common_kwargs,
                 )
-            except Exception:
+            except Exception as local_err:
+                if preferred_snapshot and _looks_like_invalid_json_error(local_err):
+                    # If cached metadata is corrupted, quarantine and fetch clean files.
+                    _quarantine_snapshot_dir(preferred_snapshot)
                 pipe = StableDiffusionPipeline.from_pretrained(
                     DEFAULT_REPO, **_common_kwargs,
                 )
@@ -153,7 +278,16 @@ def check_image_model() -> tuple[bool, str]:
             repo_id=DEFAULT_REPO, filename="model_index.json"
         )
         approx = "~1.5 GB" if _IS_SDXS else "~4 GB"
-        status = "cached" if cached else f"will download ({approx}) on first use"
+        if cached:
+            preferred_snapshot = _preferred_snapshot_dir(DEFAULT_REPO)
+            if preferred_snapshot and not _snapshot_has_valid_model_index(
+                Path(preferred_snapshot)
+            ):
+                status = "cached (metadata repair needed; will auto-fix on load)"
+            else:
+                status = "cached"
+        else:
+            status = f"will download ({approx}) on first use"
     except Exception:
         status = "on demand"
     return True, f"Ready · {DEFAULT_REPO} · {status}"
