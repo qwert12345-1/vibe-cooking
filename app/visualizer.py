@@ -202,7 +202,7 @@ def build_cluster_figure(
         ),
         xaxis_title="latent-1",
         yaxis_title="latent-2",
-        height=720,
+        height=900,
         legend=dict(
             font=dict(size=10),
             x=0.58,

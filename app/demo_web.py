@@ -838,7 +838,7 @@ _PLOT_CLICK_SCRIPT = """
 # the DOM (display:none would also kick it out of Gradio's interactive state).
 _APP_CSS = """
 .gradio-container {
-    max-width: 860px !important;
+    max-width: 1200px !important;
     margin-left: auto !important;
     margin-right: auto !important;
     font-size: 19px !important;
@@ -1088,7 +1088,7 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         )
 
         gr.HTML(
-            "<div style='color:#94a3b8;font-size:17px;font-style:italic;margin:4px 0 8px 2px;'>"
+            "<div style='color:#94a3b8;font-size:17px;margin:4px 0 8px 2px;'>"
             "🤖 Creative Chef freestyles off-script. 🧠 Evidence-Based Chef stays grounded in the dataset. "
             "Running both and comparing is half the fun.</div>"
         )
