@@ -941,9 +941,9 @@ _APP_CSS = """
 .rr-ingredients-box .gr-block-label,
 .rr-ingredients-box .gradio-textbox label,
 .rr-ingredients-box .gradio-textbox .gr-block-label {
-    color: #fbbf24 !important;
+    color: #ffffff !important;
     font-weight: 700 !important;
-    font-size: 21px !important;
+    font-size: 24px !important;
     -webkit-font-smoothing: antialiased;
 }
 .rr-ingredients-box textarea {
