@@ -810,12 +810,12 @@ _PLOT_CLICK_SCRIPT = """
             if (loadingToast) { rmToast(loadingToast); }
             if (doneToastTimeout) { clearTimeout(doneToastTimeout); doneToastTimeout = null; }
             loadingToast = mkToast(
-                "feel free to browse around this universe and we'll drag you back when the meal is done (theoretically)",
+                "feel free to browse around this universe and we'll drag you back when the meal is done (hypothetically, at least))",
                 'rr-toast-loading'
             );
         } else if (sig === 'done') {
             if (loadingToast) { rmToast(loadingToast); loadingToast = null; }
-            var done = mkToast('food is ready... in theory...', 'rr-toast-done');
+            var done = mkToast('food is ready... hypothetically! please scroll back to see the results!', 'rr-toast-done');
             doneToastTimeout = setTimeout(function() { rmToast(done); }, 4000);
         }
     }
