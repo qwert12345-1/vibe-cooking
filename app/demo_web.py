@@ -810,7 +810,7 @@ _PLOT_CLICK_SCRIPT = """
             if (loadingToast) { rmToast(loadingToast); }
             if (doneToastTimeout) { clearTimeout(doneToastTimeout); doneToastTimeout = null; }
             loadingToast = mkToast(
-                "feel free to browse around this universe and we'll drag you back when the meal is done (hypothetically, at least))",
+                "feel free to browse around this universe and we'll drag you back when the meal is done (hypothetically, at least)",
                 'rr-toast-loading'
             );
         } else if (sig === 'done') {
