@@ -206,8 +206,8 @@ def build_cluster_figure(
         legend=dict(
             font=dict(size=11),
             orientation="h",
-            x=0,
-            xanchor="left",
+            x=0.5,
+            xanchor="center",
             y=-0.08,
             yanchor="top",
             bgcolor="rgba(255,255,255,0.72)",
