@@ -944,7 +944,7 @@ _APP_CSS = """
     color: #fbbf24 !important;
     font-weight: 700 !important;
     font-size: 21px !important;
-    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.45);
+    -webkit-font-smoothing: antialiased;
 }
 .rr-ingredients-box textarea {
     font-size: 22px !important;

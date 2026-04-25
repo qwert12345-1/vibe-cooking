@@ -204,20 +204,21 @@ def build_cluster_figure(
         yaxis_title="latent-2",
         height=900,
         legend=dict(
-            font=dict(size=10),
-            x=0.58,
+            font=dict(size=11),
+            orientation="h",
+            x=0,
             xanchor="left",
-            y=0.82,
+            y=-0.08,
             yanchor="top",
             bgcolor="rgba(255,255,255,0.72)",
             bordercolor="rgba(148,163,184,0.30)",
             borderwidth=1,
         ),
-        margin=dict(l=32, r=32, t=56, b=24),
+        margin=dict(l=32, r=32, t=56, b=220),
         # Lock axis aspect ratio to 1:1 so the "matching region" circle
         # actually looks like a circle (not a horizontally squashed ellipse
         # just because the plot container is wider than it is tall).
-        xaxis=dict(domain=[0.04, 0.54], constrain="domain"),
+        xaxis=dict(domain=[0.02, 0.98], constrain="domain"),
         yaxis=dict(scaleanchor="x", scaleratio=1, constrain="domain"),
     )
     return fig
