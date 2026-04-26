@@ -207,17 +207,6 @@ checkpoint was separate from this repository.
 
 ---
 
-## Tests
-
-```bash
-pytest tests/
-```
-
-Should report **24 passed, 1 skipped** (the skipped one needs `rapidfuzz`
-installed, which IS in requirements.txt — so likely 24/0 in your env).
-
----
-
 ## What's in the bundled zip
 
 | Path | Size | Purpose |
