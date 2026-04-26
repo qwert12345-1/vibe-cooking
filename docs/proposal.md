@@ -33,7 +33,7 @@ down-weights pantry staples (salt, water, oil) that appear in most recipes
 while up-weighting distinctive ingredients (saffron, miso, mascarpone) — which
 is exactly the matching behavior we want for this task. Second, we will
 hand-implement **K-Means clustering** (with k-means++ initialization and
-elbow-method selection of k) on sentence-embedding representations of recipes to
+silhouette-based selection of k) on sentence-embedding representations of recipes to
 produce an interactive 2-D "recipe universe" visualization, letting the user
 click a recommended recipe and explore its neighbors within the same cluster.
 K-Means is appropriate because the recipe space has natural groupings (soups,

@@ -29,7 +29,7 @@ from .data_loader import (
     load_vocab,
     save_vocab,
 )
-from .kmeans import KMeansResult, choose_k_elbow, elbow_analysis, fit_kmeans
+from .kmeans import KMeansResult, choose_k_silhouette, fit_kmeans, silhouette_analysis
 from .normalizer import NormalizedToken, Normalizer, flatten_resolved
 from .scoring import (
     coverage,
@@ -257,16 +257,16 @@ class RecipeRecommender:
             print(f"[build] Clustering space: SVD of TF-IDF {cluster_space.shape}"
                   f"{' (SBERT unavailable)' if requested == 'sbert' else ''}")
 
-        # ------- Elbow + K-Means on chosen space ---------------------------
-        print("[build] Choosing k via elbow analysis on the clustering space...")
+        # ------- Silhouette + K-Means on chosen space ----------------------
+        print("[build] Choosing k via silhouette analysis on the clustering space...")
         ks = list(range(k_range[0], k_range[1] + 1, 2))
-        elbow_sample = min(cluster_space.shape[0], 8000)
-        inertias = elbow_analysis(
+        silhouette_sample = min(cluster_space.shape[0], 2500)
+        silhouette_scores = silhouette_analysis(
             cluster_space, ks, seed=42, n_init=1,
-            sample_size=elbow_sample, metric="cosine",
+            sample_size=silhouette_sample, metric="cosine",
         )
-        k = choose_k_elbow(inertias)
-        print(f"[build] Selected k={k}. Inertias: {inertias}")
+        k = choose_k_silhouette(silhouette_scores)
+        print(f"[build] Selected k={k}. Silhouette scores: {silhouette_scores}")
 
         print(f"[build] Fitting spherical K-Means with k={k} in {cluster_space.shape[1]}-D...")
         km = fit_kmeans(cluster_space, k=k, n_init=5, seed=42, metric="cosine")

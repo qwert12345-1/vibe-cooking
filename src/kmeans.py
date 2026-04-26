@@ -1,4 +1,4 @@
-"""K-Means++ clustering with elbow analysis for choosing k using NumPy
+"""K-Means++ clustering with elbow/silhouette analysis for choosing k.
 
 Supports dense numpy matrices. For the recipe application, 
 we run K-Means on 2-D or low-dim embeddings — not on the sparse
@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from sklearn.metrics import silhouette_score
 
 
 # stores the resuult of clustering: centroids, labels, inertia, and number of iterations
@@ -174,6 +175,39 @@ def elbow_analysis(
     }
 
 
+def silhouette_analysis(
+    X: np.ndarray,
+    k_values: list[int],
+    seed: int = 42,
+    n_init: int = 1,
+    sample_size: int | None = None,
+    metric: str = "euclidean",
+) -> dict[int, float]:
+    """Return {k: silhouette_score} for each k.
+
+    Uses the same optional subsampling strategy as `elbow_analysis` for speed.
+    Higher silhouette is better; values are in [-1, 1].
+    """
+    data = X
+    n = X.shape[0]
+    if sample_size is not None and sample_size < n:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(n, size=sample_size, replace=False)
+        data = X[idx]
+
+    metric_name = "cosine" if metric == "cosine" else "euclidean"
+    scores: dict[int, float] = {}
+    for k in k_values:
+        if k < 2 or k >= data.shape[0]:
+            continue
+        result = fit_kmeans(data, k, seed=seed, n_init=n_init, metric=metric)
+        labels = result.labels
+        if np.unique(labels).size < 2:
+            continue
+        scores[k] = float(silhouette_score(data, labels, metric=metric_name))
+    return scores
+
+
 # simple elbow heristic to pick the best k by treating the inertia curve as lots of 
 # points on 2-D plane and connecting (k_min, inertia_min) to (k_max, inertia_max)
 # then find the point that is farthest from that line
@@ -196,3 +230,10 @@ def choose_k_elbow(inertias: dict[int, float]) -> int:
         perp = v - proj
         distances.append(np.linalg.norm(perp))
     return int(ks[int(np.argmax(distances))])
+
+
+def choose_k_silhouette(scores: dict[int, float]) -> int:
+    """Pick k with the highest silhouette score (ties prefer smaller k)."""
+    if not scores:
+        raise ValueError("no valid silhouette scores to choose from")
+    return min(scores.keys(), key=lambda k: (-scores[k], k))

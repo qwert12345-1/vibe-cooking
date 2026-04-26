@@ -18,7 +18,7 @@ recipe_recommender/
 │   ├── creative.py                # Local Qwen2.5-0.5B generative LLM pipeline
 │   ├── data_loader.py             # HF dataset download, field parsing, vocab builder
 │   ├── embeddings.py              # Shared SBERT loader for semantic match/fallback
-│   ├── kmeans.py                  # [HAND-IMPLEMENTED] K-Means++ with elbow analysis
+│   ├── kmeans.py                  # [HAND-IMPLEMENTED] K-Means++ with silhouette-based k selection
 │   ├── normalizer.py              # Multi-stage input normalization pipeline
 │   ├── recommender.py             # Main ranking engine: filter → recall → rank
 │   ├── scoring.py                 # Fused retrieval scoring metrics
@@ -50,7 +50,7 @@ correctness and design choices can be reviewed and defended independently.
 | Member | Owned Modules | Key Deliverables |
 |---|---|---|
 | **A — Core ML & Retrieval** | `src/tfidf.py`, `src/recommender.py`, `src/scoring.py` | Hand-implemented TF-IDF; recommendation engine architecture; fusion scoring metric (cosine + missing-ingredient penalty). |
-| **B — Clustering & Semantic Space** | `src/kmeans.py`, `src/embeddings.py` | Hand-implemented Spherical K-Means++ with elbow method; unifying SBERT embeddings for the feature space. |
+| **B — Clustering & Semantic Space** | `src/kmeans.py`, `src/embeddings.py` | Hand-implemented Spherical K-Means++ with silhouette-based k selection; unifying SBERT embeddings for the feature space. |
 | **C — Generative AI Integrations** | `src/creative.py`, `src/visualize_dish.py` | Integration with Local Qwen2.5 LLMs and System Prompting; visual generation via Stable Diffusion (SDXS) models. |
 | **D — Seq2Seq Transformer Architecture** | `src/seq2seq/` | Custom PyTorch Transformer architecture; training pipelines; data preprocessing (`allrecipes.py`); decoding strategies for AI generation. |
 | **E — Data Pipeline & Visual Dashboard** | `src/data_loader.py`, `src/normalizer.py`, `app/demo_web.py` | Multi-stage typo/alias normalization pipeline; Plotly interactive 2-D clustering graph; interactive Gradio Dashboard interface. |
