@@ -2,7 +2,13 @@
 import numpy as np
 import pytest
 
-from src.kmeans import choose_k_elbow, elbow_analysis, fit_kmeans
+from src.kmeans import (
+    choose_k_elbow,
+    choose_k_silhouette,
+    elbow_analysis,
+    fit_kmeans,
+    silhouette_analysis,
+)
 
 
 def _three_blobs(n=90, seed=0):
@@ -42,6 +48,13 @@ def test_elbow_chooses_three_for_three_blobs():
     # The "elbow" for 3 well-separated blobs is at k=3; allow a small neighborhood
     # around it to absorb minor numerical differences across numpy/scipy versions.
     assert k in (2, 3, 4, 5), f"elbow picked k={k}; inertias={inertias}"
+
+
+def test_silhouette_prefers_three_for_three_blobs():
+    X, _ = _three_blobs()
+    scores = silhouette_analysis(X, [2, 3, 4, 5, 6, 7], seed=0)
+    k = choose_k_silhouette(scores)
+    assert k == 3, f"silhouette picked k={k}; scores={scores}"
 
 
 def test_spherical_kmeans_centroids_on_unit_sphere():

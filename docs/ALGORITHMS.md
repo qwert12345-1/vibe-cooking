@@ -10,7 +10,7 @@ This document describes every algorithm and technique used in this project, writ
 2. [Cosine Similarity](#2-cosine-similarity)
 3. [K-Means++ Clustering](#3-k-means-clustering)
 4. [Spherical K-Means (Cosine K-Means)](#4-spherical-k-means-cosine-k-means)
-5. [Elbow Analysis for Choosing K](#5-elbow-analysis-for-choosing-k)
+5. [Silhouette Analysis for Choosing K](#5-silhouette-analysis-for-choosing-k)
 6. [Singular Value Decomposition (SVD)](#6-singular-value-decomposition-svd)
 7. [Principal Component Analysis (PCA)](#7-principal-component-analysis-pca)
 8. [t-SNE (t-Distributed Stochastic Neighbor Embedding)](#8-t-sne)
@@ -129,20 +129,20 @@ TF-IDF and SBERT vectors are directional. Two recipes with the same ingredient p
 
 ---
 
-## 5. Elbow Analysis for Choosing K
+## 5. Silhouette Analysis for Choosing K
 
 **File:** `src/kmeans.py`
 
 **What it does:**
-Automatically decides the best number of clusters (*k*) to use, rather than guessing.
+Automatically decides the best number of clusters (*k*) to use by maximizing cluster separation quality.
 
 **How it works:**
 1. Run K-Means for each candidate *k* (e.g. 8, 10, 12, … 50) on a random subsample of recipes for speed.
-2. Plot *k* on the x-axis and inertia on the y-axis — this usually forms a curve that bends ("elbows") somewhere.
-3. Draw a straight line from the first point (smallest *k*, highest inertia) to the last point (largest *k*, lowest inertia).
-4. Find the point on the curve that is farthest from this line — that's the elbow, the *k* where adding more clusters gives diminishing returns.
+2. For each fitted model, compute the **silhouette score** (range -1 to 1), which compares how close each recipe is to points in its own cluster versus points in neighboring clusters.
+3. Pick the *k* with the highest silhouette score (ties prefer smaller *k*).
 
-**Implementation note:** Both axes are normalised before computing distances to avoid the scale of inertia values dominating.
+**Why this is better than elbow here:**
+The elbow heuristic depends on visually detecting a "bend" in inertia, which can be ambiguous on noisy real-world embeddings. Silhouette is a direct cluster-quality objective, so k-selection is more stable and easier to automate.
 
 ---
 
