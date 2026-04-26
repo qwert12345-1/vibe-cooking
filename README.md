@@ -207,35 +207,19 @@ checkpoint was separate from this repository.
 
 ---
 
-## What's in the bundled zip
+## Included Artifacts
 
-| Path | Size | Purpose |
-| --- | --- | --- |
-| `cache/engine.pkl` | ~150 MB | Prebuilt TF-IDF + K-Means + t-SNE artifacts |
-| `cache/recipes.pkl` | ~60 MB | Parsed Recipe objects |
-| `cache/sbert_partial.pkl` | ~60 MB | SBERT embeddings of the 39 k recipes |
-| `models/` | ~2.0 GB | HuggingFace model cache (SBERT + Qwen2.5-0.5B + SDXS) |
-| `nltk_data/` | ~30 MB | Wordnet corpus |
-| `seq2seq_checkpoints/best.pt` | ~30 MB | Bundled Seq2Seq inference checkpoint |
-| `data/` | varies | HF recipes-with-nutrition dataset cache |
+The bundled submission includes the main files needed to run the demo locally
+without rebuilding the full pipeline:
 
-Everything is loaded from these project-local paths at runtime via the
-`HF_HOME`, `HF_HUB_CACHE`, `SENTENCE_TRANSFORMERS_HOME`, `NLTK_DATA` env
-vars that `app/demo_web.py` sets at import time.
+- `seq2seq_checkpoints/best.pt` for the Seq2Seq title model at inference time
+- `cache/` for prebuilt recommender artifacts and parsed recipe caches
+- `models/` for local Hugging Face model caches used by SBERT, the LLM, and image generation
+- `nltk_data/` and `data/` for local WordNet and dataset caches
 
----
-
-## Re-bundling (if you're the project author preparing a new submission)
-
-```bash
-# 1. Launch the app once so all the models download into your user caches.
-python -m app.demo_web
-
-# 2. Copy those caches into the project tree.
-python scripts/bundle_caches.py
-
-# 3. Zip the whole vibe-cooking/ folder.
-```
+These project-local paths are loaded at runtime via the `HF_HOME`,
+`HF_HUB_CACHE`, `SENTENCE_TRANSFORMERS_HOME`, and `NLTK_DATA` environment
+variables set by `app/demo_web.py`.
 
 ---
 
