@@ -29,7 +29,7 @@ on hand, invent ONE dish and write it using the exact format below. Do not add
 preamble, explanations, or notes outside the template.
 
 Rules:
-- Use MOSTLY the user's ingredients. You may add common pantry items (salt,
+- You MUST use ALL of the user's ingredients in your recipe steps. You may add common pantry items (salt,
   pepper, oil, water, sugar, flour) but no other surprise ingredients.
 - Keep the recipe practical — real home cooking.
 - Steps must be short and actionable.
@@ -57,7 +57,7 @@ SYSTEM_PROMPT_ZH = """\
 严格按下面的模板输出，不要写多余的前言或解释。
 
 规则：
-- 主要使用用户提供的食材，可以补充常见调料（盐、胡椒、油、水、糖、面粉），
+- 必须在步骤中使用用户提供的所有食材。可以补充常见调料（盐、胡椒、油、水、糖、面粉），
   不要出现其他意外食材。
 - 菜谱要实际可操作。
 - 步骤要简洁，直接给出动作。
@@ -119,7 +119,7 @@ def _build_user_prompt(
     lang: str,
 ) -> str:
     if lang == "zh":
-        parts = [f"用户手上的食材: {', '.join(ingredients)} 。"]
+        parts = [f"用户手上的食材: {', '.join(ingredients)} 。请务必在步骤中使用所有的食材。"]
         if cuisine:
             parts.append(f"偏好菜系: {cuisine}。")
         if diet:
@@ -135,7 +135,7 @@ def _build_user_prompt(
         parts.append("现在按模板创作一道创意菜。")
         return " ".join(parts)
 
-    parts = [f"Ingredients the user has: {', '.join(ingredients)}."]
+    parts = [f"Ingredients the user has: {', '.join(ingredients)}. You MUST use ALL of these ingredients in the steps."]
     if cuisine:
         parts.append(f"Preferred cuisine: {cuisine}.")
     if diet:
