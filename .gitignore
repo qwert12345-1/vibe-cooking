@@ -13,3 +13,4 @@ cache/
 # Models and datasets download automatically from HuggingFace on first run.
 # None of this belongs in git.
 models/
+nltk_data/
