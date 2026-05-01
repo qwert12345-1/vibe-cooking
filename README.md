@@ -1,6 +1,10 @@
 # 🧑‍🍳 Vibe Cooking!
 
-This is an interactive web app that takes a few ingredients and gives you:
+## Project Overview
+
+Ever stare into your fridge full of random ingredients and wonder what on earth to make? **Vibe Cooking** is here to rescue your dinner (or ruin it)! It's a fully locally-run recipe recommendation and generation engine that turns your pantry leftovers into culinary masterpieces or lets you virtually "bomb the kitchen" by inventing unhinged "dark cuisine" from chaotic ingredient combinations. By seamlessly blending our custom-built algorithms (TF-IDF, K-Means clustering, and an in-house trained Seq2Seq model) with powerful open-source generative AI (LLMs and Stable Diffusion), Vibe Cooking bridges the gap between finding real, trustworthy recipes and conjuring entirely new dishes on the fly.
+
+This interactive web app takes a few ingredients and gives you:
 
 1. **A brand-new creative recipe** — either from a local LLM (Qwen2.5-0.5B via
    Hugging Face Transformers) or from a hand-trained Seq2Seq + retrieval-augmented draft
