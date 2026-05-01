@@ -1,11 +1,11 @@
 # Conda env for the Vibe Cooking! project.
 #   conda env create -f environment.yml
-#   conda activate recipe_recommender
+#   conda activate vibe_cooking
 #
 # We pull heavier packages (like torch) from
 # conda-forge where their binary wheels are reliable on Windows. Everything
 # else comes from pip to match requirements.txt pins.
-name: creative_recipe
+name: vibe_cooking
 channels:
   - conda-forge
   - defaults
